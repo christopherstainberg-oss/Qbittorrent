@@ -49,6 +49,8 @@
   .arrow{color:var(--muted)}
   .muted{color:var(--muted)}
   .hidden{display:none}
+  select.rowsel{padding:4px 6px;font-size:12px;max-width:150px}
+  select.changed{border-color:var(--warn);color:var(--warn)}
   .log{background:#0b1219;border:1px solid var(--line);border-radius:8px;padding:12px;
     font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;
     max-height:240px;overflow:auto;margin-top:14px}
@@ -273,25 +275,58 @@ async function loadCategories(){
 }
 
 /* ---------- torrents ---------- */
+// Build <option>s for a per-row category picker (includes a "none" choice).
+function rowCatOptions(selected){
+  const none = `<option value=""${!selected?" selected":""}>— none —</option>`;
+  const known = CATEGORIES.some(c=>c.name===selected);
+  const extra = (selected && !known)
+    ? `<option value="${esc(selected)}" selected>${esc(selected)} (missing)</option>` : "";
+  const opts = CATEGORIES.map(c=>
+    `<option value="${esc(c.name)}"${c.name===selected?" selected":""}>${esc(c.name)}</option>`).join("");
+  return none + extra + opts;
+}
 async function loadTorrents(){
   const torrents = await api("/api/torrents");
   $("#torCount").textContent = `(${torrents.length})`;
   if(!torrents.length){ $("#rows").innerHTML='<tr><td colspan="5" class="muted">No completed/seeding torrents.</td></tr>'; return; }
   $("#rows").innerHTML = torrents.map(t=>{
-    const cur = t.category ? esc(t.category) : '<span class="muted">none</span>';
-    let prop;
-    if(t.proposed && t.changes) prop = `<span class="arrow">→</span> <span class="pill change">${esc(t.proposed)}</span>`;
-    else if(t.proposed) prop = `<span class="pill">${esc(t.proposed)}</span>`;
-    else prop = '<span class="muted">no match</span>';
+    const propSel = t.proposed || t.category || "";     // default the proposed picker
+    const changed = t.proposed && t.proposed !== t.category;
     return `<tr>
       <td><input type="checkbox" class="rowchk" data-hash="${t.hash}" ${t.changes?"checked":""}></td>
       <td class="name" title="${esc(t.name)}">${esc(t.name)}<div class="muted" style="font-size:11px">${fmtSize(t.size)} · ${esc(t.save_path)}</div></td>
       <td class="muted">${esc(t.state)}</td>
-      <td>${cur}</td><td>${prop}</td>
+      <td><select class="cur rowsel" data-hash="${t.hash}" title="change this torrent's category now">${rowCatOptions(t.category)}</select></td>
+      <td><div style="display:flex;gap:4px;align-items:center">
+        <select class="prop rowsel${changed?" changed":""}" data-hash="${t.hash}">${rowCatOptions(propSel)}</select>
+        <button class="sm applyprop" data-hash="${t.hash}" title="apply this category to the torrent">Apply</button>
+      </div></td>
     </tr>`;
   }).join("");
 }
 const selectedHashes = ()=>$$(".rowchk:checked").map(c=>c.dataset.hash);
+
+// Set one torrent's category (reused by both the Current picker and Proposed Apply).
+async function setOne(hash, category, which){
+  try{
+    const r = await api("/api/set-category",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({hashes:[hash],category})});
+    logLine(`[${which}] ${hash.slice(0,8)}… → ${category||"(none)"}${r.relocated?"  (files moved)":""}`);
+    toast(`Set → ${category||"none"}`);
+    await loadTorrents();
+  }catch(e){ toast(e.message,true); logLine(`[${which}] ERROR: ${e.message}`); await loadTorrents(); }
+}
+// Current picker: change takes effect immediately.
+$("#rows").addEventListener("change",(e)=>{
+  if(e.target.classList.contains("cur")) setOne(e.target.dataset.hash, e.target.value, "current");
+});
+// Proposed: override then apply via the row button.
+$("#rows").addEventListener("click",(e)=>{
+  if(e.target.classList.contains("applyprop")){
+    const sel=e.target.closest("td").querySelector(".prop");
+    setOne(e.target.dataset.hash, sel.value, "proposed");
+  }
+});
 
 async function refreshAll(){ await Promise.all([loadInfo(), loadCategories(), loadTorrents()]); }
 

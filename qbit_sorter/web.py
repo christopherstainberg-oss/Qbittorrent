@@ -254,8 +254,15 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
     def set_category(body: SetCategoryBody) -> dict[str, Any]:
         if not body.hashes:
             raise HTTPException(status_code=400, detail="No torrents selected.")
-        if not body.category:
-            raise HTTPException(status_code=400, detail="No category given.")
+        # Empty category means "remove category" (uncategorize) — used by the
+        # per-row "none" option in the torrents table.
+        if body.category == "":
+            try:
+                state.client().set_category("", body.hashes)
+            except Exception as exc:  # noqa: BLE001
+                raise _err(exc)
+            return {"ok": True, "category": "", "count": len(body.hashes),
+                    "relocated": False}
         try:
             client = state.client()
             cats = client.categories()
