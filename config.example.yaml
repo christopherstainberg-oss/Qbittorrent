@@ -64,7 +64,10 @@ rules:
 
   - name: "Movies"
     category: "Movies"
-    name_regex: "(1080p|2160p|720p|bluray|x264|x265|web-?dl|remux)"
+    # Match on real quality/source tags, NOT a bare year: a lone "2026" also
+    # appears in magazines/audiobooks/dated releases and mis-files them here.
+    # Keep any audiobook/music rule ABOVE this one so audio content wins first.
+    name_regex: "\\b(2160p|1080p|720p|480p|bluray|blu-ray|bdrip|dvdrip|web-?dl|web-?rip|hdtv|hdrip|remux|x264|x265|h\\.?264|h\\.?265|hevc|xvid)\\b"
 
   - name: "Music"
     category: "Music"
