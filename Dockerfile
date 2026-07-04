@@ -17,6 +17,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application code.
 COPY qbit_sorter ./qbit_sorter
 COPY serve.py run.py ./
+# Bundled template used to seed /config/config.yaml on first run.
+COPY config.example.yaml ./config.example.yaml
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Config is provided at runtime via a mounted volume at /config.
 VOLUME ["/config"]
@@ -26,6 +30,9 @@ EXPOSE 8500
 # qBittorrent being reachable).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request,os; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8500')+'/', timeout=4)" || exit 1
+
+# The entrypoint seeds a default config on first run, then runs the CMD.
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Serve the web UI + API + poll loop. CONFIG/HOST/PORT come from the env above
 # (overridable via compose). `exec` so Python (PID 1) receives stop signals and

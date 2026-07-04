@@ -1,0 +1,48 @@
+# ============================================================================
+# Portainer Stack for qBittorrent Auto-Sorter
+# ----------------------------------------------------------------------------
+# Deploy this via Portainer:  Stacks -> Add stack -> Build method: Repository
+#   Repository URL:  https://github.com/christopherstainberg-oss/Qbittorrent
+#   Compose path:    docker-compose.portainer.yml
+# Set the environment variables below in Portainer's "Environment variables"
+# section (or edit them here). Secrets stay out of any file this way.
+#
+# Config is stored in a named Docker volume and auto-seeded on first start,
+# so there's nothing to create on the host beforehand. Edit rules/categories/
+# automation later from the web UI at http://<host>:8500.
+# ============================================================================
+
+services:
+  qbit-sorter:
+    build: .                         # Portainer builds the image from the repo
+    image: qbit-sorter:latest
+    container_name: qbit-sorter
+    restart: unless-stopped
+    ports:
+      - "8500:8500"                  # web UI + API + webhook
+    volumes:
+      - qbit_config:/config          # config.yaml lives here, auto-seeded
+    environment:
+      # --- qBittorrent connection (required) ---
+      QBIT_HOST: "http://192.168.0.180:2085"
+      QBIT_USERNAME: "admin"
+      QBIT_PASSWORD: "adminadmin"
+
+      # --- automation ---
+      DRY_RUN: "true"                # START in preview mode; set "false" to go live
+      POLL_ENABLED: "true"
+      POLL_INTERVAL_MINUTES: "2"
+
+      # --- Sonarr / Radarr (optional) ---
+      # SONARR_ENABLED: "true"
+      # SONARR_URL: "http://192.168.0.180:8989"
+      # SONARR_API_KEY: "xxxxxxxxxxxxxxxx"
+      # RADARR_ENABLED: "true"
+      # RADARR_URL: "http://192.168.0.180:7878"
+      # RADARR_API_KEY: "xxxxxxxxxxxxxxxx"
+
+      # --- optional: secure the completion webhook ---
+      # WEBHOOK_TOKEN: "some-long-random-string"
+
+volumes:
+  qbit_config:
