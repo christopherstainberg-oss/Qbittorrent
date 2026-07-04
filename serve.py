@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         logging.error("%s", exc)
         return 2
 
-    print(f"\n  qBittorrent Auto-Sorter web UI  →  http://{args.host}:{args.port}\n")
+    print(f"\n  qBittorrent Auto-Sorter web UI  ->  http://{args.host}:{args.port}\n")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 

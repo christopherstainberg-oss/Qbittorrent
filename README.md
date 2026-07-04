@@ -224,26 +224,32 @@ docker compose up -d --build
 
 Open `http://<host>:8500`. Configuration:
 
-- `config.yaml` is mounted read-only at `/config/config.yaml`.
+- `config.yaml` is mounted read-write at `/config/config.yaml` so the web UI can
+  save rule/category/settings edits back to it.
 - Secrets and runtime toggles are set as environment variables in
   `docker-compose.yml` (they override the file):
   `DRY_RUN`, `POLL_ENABLED`, `POLL_INTERVAL_MINUTES`,
   `QBIT_HOST` / `QBIT_USERNAME` / `QBIT_PASSWORD`,
   `SONARR_*`, `RADARR_*`, `WEBHOOK_TOKEN`.
 
-> The container defaults to `DRY_RUN=false` (it acts for real). Set it to
-> `"true"` in `docker-compose.yml` for a safe first run, watch the logs
-> (`docker compose logs -f`), then flip it back.
+> For a safe first run set `DRY_RUN: "true"` in `docker-compose.yml`, watch the
+> logs (`docker compose logs -f`), then flip it to `"false"` to act for real.
 
 Build/run without compose:
 
 ```bash
 docker build -t qbit-sorter .
 docker run -d --name qbit-sorter -p 8500:8500 \
-  -v /path/to/config.yaml:/config/config.yaml:ro \
+  -v /path/to/config.yaml:/config/config.yaml \
   -e POLL_ENABLED=true -e DRY_RUN=false \
   qbit-sorter
 ```
+
+### Portainer Stack
+
+For a Portainer deployment (no host files to create — config auto-seeds into a
+named volume, secrets via env vars), use `docker-compose.portainer.yml` and
+follow the step-by-step guide in **[PORTAINER.md](PORTAINER.md)**.
 
 ## Running on a schedule (Windows Task Scheduler)
 

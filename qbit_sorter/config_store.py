@@ -19,6 +19,9 @@ log = logging.getLogger(__name__)
 _yaml = YAML()
 _yaml.preserve_quotes = True
 _yaml.indent(mapping=2, sequence=4, offset=2)
+# Never line-wrap: long values like regexes must stay on one line so they
+# remain readable and can't be mangled by fragile backslash continuations.
+_yaml.width = 4096
 
 
 def _load(path: Path) -> Any:
