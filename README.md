@@ -251,6 +251,13 @@ For a Portainer deployment (no host files to create — config auto-seeds into a
 named volume, secrets via env vars), use `docker-compose.portainer.yml` and
 follow the step-by-step guide in **[PORTAINER.md](PORTAINER.md)**.
 
+### Cloudflare Pages + Tunnel (remote access)
+
+To reach the UI from outside your LAN, host the front-end on Cloudflare Pages
+and expose the self-hosted backend through a Cloudflare Tunnel (no inbound ports
+opened). Use `docker-compose.tunnel.yml` and follow
+**[CLOUDFLARE.md](CLOUDFLARE.md)**.
+
 ## Running on a schedule (Windows Task Scheduler)
 
 Run it automatically, e.g. every 30 minutes:

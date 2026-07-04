@@ -1,0 +1,55 @@
+# ============================================================================
+# qBittorrent Auto-Sorter + Cloudflare Tunnel
+# ----------------------------------------------------------------------------
+# Runs the app AND a Cloudflare Tunnel that exposes it to the internet, so a
+# UI hosted on Cloudflare Pages (or you, remotely) can reach the backend
+# without opening any inbound port on your network.
+#
+#   1. Zero Trust dashboard -> Networks -> Tunnels -> Create a tunnel
+#      (choose "Cloudflared"). Copy the tunnel TOKEN.
+#   2. Add a Public Hostname to that tunnel, e.g.
+#         Subdomain: qbit-sorter   Domain: example.com
+#         Service:   http://qbit-sorter:8500   (the container name below)
+#   3. Set TUNNEL_TOKEN (and the vars below), then:
+#         docker compose -f docker-compose.tunnel.yml up -d --build
+#
+# See CLOUDFLARE.md for the full walkthrough.
+# ============================================================================
+
+services:
+  qbit-sorter:
+    build: .
+    image: qbit-sorter:latest
+    container_name: qbit-sorter
+    restart: unless-stopped
+    ports:
+      - "8500:8500"                 # keep for LAN access; remove to force tunnel-only
+    volumes:
+      - qbit_config:/config
+    environment:
+      QBIT_HOST: "${QBIT_HOST:-http://192.168.0.180:2085}"
+      QBIT_USERNAME: "${QBIT_USERNAME:-admin}"
+      QBIT_PASSWORD: "${QBIT_PASSWORD:-adminadmin}"
+      DRY_RUN: "${DRY_RUN:-true}"
+      POLL_ENABLED: "${POLL_ENABLED:-true}"
+      POLL_INTERVAL_MINUTES: "${POLL_INTERVAL_MINUTES:-2}"
+      # Lock CORS to your Pages site once you know it, e.g.
+      #   https://qbit-sorter.pages.dev
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      # Strongly recommended when internet-exposed: protect the webhook.
+      WEBHOOK_TOKEN: "${WEBHOOK_TOKEN:-}"
+      # Optional Sonarr/Radarr:
+      # SONARR_ENABLED, SONARR_URL, SONARR_API_KEY, RADARR_* (see other composes)
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: qbit-sorter-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:?Set TUNNEL_TOKEN from the Zero Trust dashboard}"
+    depends_on:
+      - qbit-sorter
+
+volumes:
+  qbit_config:

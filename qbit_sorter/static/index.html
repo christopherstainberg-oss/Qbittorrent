@@ -199,6 +199,17 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// Backend base URL. Empty = same origin (served by the app itself). When this
+// UI is hosted on Cloudflare Pages, point it at your backend (tunnel) URL via
+// the Automation tab, or once with ?api=https://your-backend  (persisted).
+(function(){
+  const p = new URLSearchParams(location.search);
+  if (p.has("api")) {
+    const v = (p.get("api") || "").trim().replace(/\/+$/, "");
+    if (v) localStorage.setItem("apiBase", v); else localStorage.removeItem("apiBase");
+    history.replaceState(null, "", location.pathname);  // drop the query
+  }
+})();
 let API = (localStorage.getItem("apiBase") || "").replace(/\/+$/, "");
 let CATEGORIES = [];   // [{name, save_path}]
 let RULES = [];        // working copy of rule dicts
@@ -428,12 +439,14 @@ $("#catRows").onclick = async (e)=>{
 /* ---------- automation ---------- */
 function hookUrlBase(){ return API || (location.origin); }
 async function loadAutomation(){
+  // Populate the backend-URL field first so it's editable even when the
+  // backend is unreachable (the whole point when hosted on Cloudflare Pages).
+  $("#apiBase").value = localStorage.getItem("apiBase") || "";
+  $("#hookUrl").value = `curl -X POST "${hookUrlBase()}/api/hooks/complete?hash=%I"`;
   const c = await api("/api/config");
   $("#setDry").checked = c.settings.dry_run;
   $("#setPoll").checked = c.settings.poll_enabled;
   $("#setInterval").value = c.settings.poll_interval_minutes;
-  $("#hookUrl").value = `curl -X POST "${hookUrlBase()}/api/hooks/complete?hash=%I"`;
-  $("#apiBase").value = localStorage.getItem("apiBase") || "";
   // arr forms
   const svc = (s)=>`<div class="grid" data-svc="${s.name}" style="margin-bottom:8px">
       <div class="field"><label class="switch"><input type="checkbox" data-a="enabled" ${s.enabled?"checked":""}> ${s.name} enabled</label></div>
@@ -478,7 +491,23 @@ $$('.tab').forEach(t=>t.addEventListener("click",()=>{
   if(t.dataset.tab==="automation") loadAutomation().catch(e=>toast(e.message,true));
 }));
 
-async function bootstrap(){ try{ await refreshAll(); }catch(e){ toast(e.message,true); } }
+function showSetupHint(){
+  $("#conn").innerHTML = '<span style="color:var(--warn)">not connected</span> — '
+    + 'set your backend URL in the <b>Automation</b> tab (Backend connection).';
+  // Jump the user to where they fix it.
+  const autoTab = document.querySelector('.tab[data-tab="automation"]');
+  if (autoTab) autoTab.click();
+  loadAutomation().catch(()=>{});   // still populates the backend-URL field
+}
+async function bootstrap(){
+  try{
+    await refreshAll();
+  }catch(e){
+    // Most common on Cloudflare Pages before the backend URL is set.
+    if(!API){ showSetupHint(); }
+    else { $("#conn").textContent = "connection error: "+e.message; toast(e.message,true); }
+  }
+}
 bootstrap();
 </script>
 </body>
