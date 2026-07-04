@@ -14,11 +14,13 @@ import sys
 
 import uvicorn
 
+from qbit_sorter import ensure_utf8_console
 from qbit_sorter.config import ConfigError
 from qbit_sorter.web import create_app
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_utf8_console()
     parser = argparse.ArgumentParser(prog="qbit-sorter-web")
     parser.add_argument("-c", "--config", default="config.yaml",
                         help="Path to config file (default: config.yaml)")

@@ -14,6 +14,8 @@ from .sorter import build_plan, run
 
 
 def _setup_logging(verbose: bool) -> None:
+    from . import ensure_utf8_console
+    ensure_utf8_console()
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s  %(levelname)-7s %(message)s",
