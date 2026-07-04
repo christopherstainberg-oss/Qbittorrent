@@ -22,27 +22,29 @@ services:
       - "8500:8500"                  # web UI + API + webhook
     volumes:
       - qbit_config:/config          # config.yaml lives here, auto-seeded
+    # Values below read from Portainer's "Environment variables" panel, with
+    # sensible defaults after ":-". Set them in Portainer to override.
     environment:
       # --- qBittorrent connection (required) ---
-      QBIT_HOST: "http://192.168.0.180:2085"
-      QBIT_USERNAME: "admin"
-      QBIT_PASSWORD: "adminadmin"
+      QBIT_HOST: "${QBIT_HOST:-http://192.168.0.180:2085}"
+      QBIT_USERNAME: "${QBIT_USERNAME:-admin}"
+      QBIT_PASSWORD: "${QBIT_PASSWORD:-adminadmin}"
 
       # --- automation ---
-      DRY_RUN: "true"                # START in preview mode; set "false" to go live
-      POLL_ENABLED: "true"
-      POLL_INTERVAL_MINUTES: "2"
+      DRY_RUN: "${DRY_RUN:-true}"                 # START in preview mode; set "false" to go live
+      POLL_ENABLED: "${POLL_ENABLED:-true}"
+      POLL_INTERVAL_MINUTES: "${POLL_INTERVAL_MINUTES:-2}"
 
-      # --- Sonarr / Radarr (optional) ---
-      # SONARR_ENABLED: "true"
-      # SONARR_URL: "http://192.168.0.180:8989"
-      # SONARR_API_KEY: "xxxxxxxxxxxxxxxx"
-      # RADARR_ENABLED: "true"
-      # RADARR_URL: "http://192.168.0.180:7878"
-      # RADARR_API_KEY: "xxxxxxxxxxxxxxxx"
+      # --- Sonarr / Radarr (optional; set ENABLED=true and paste the API key) ---
+      SONARR_ENABLED: "${SONARR_ENABLED:-false}"
+      SONARR_URL: "${SONARR_URL:-http://192.168.0.180:8989}"
+      SONARR_API_KEY: "${SONARR_API_KEY:-}"
+      RADARR_ENABLED: "${RADARR_ENABLED:-false}"
+      RADARR_URL: "${RADARR_URL:-http://192.168.0.180:7878}"
+      RADARR_API_KEY: "${RADARR_API_KEY:-}"
 
       # --- optional: secure the completion webhook ---
-      # WEBHOOK_TOKEN: "some-long-random-string"
+      WEBHOOK_TOKEN: "${WEBHOOK_TOKEN:-}"
 
 volumes:
   qbit_config:
