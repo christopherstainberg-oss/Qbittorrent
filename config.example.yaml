@@ -1,0 +1,120 @@
+# ============================================================================
+# qBittorrent Auto-Sorter configuration
+# ----------------------------------------------------------------------------
+# Copy this file to `config.yaml` and edit it for your setup.
+#   cp config.example.yaml config.yaml
+# ============================================================================
+
+# --- Connection to your qBittorrent WebUI ----------------------------------
+qbittorrent:
+  host: "http://localhost:8080"   # WebUI address (include http:// and port)
+  username: "admin"               # WebUI username
+  password: "adminadmin"          # WebUI password
+  verify_cert: true               # set false only for self-signed https certs
+
+# --- Which torrents to consider --------------------------------------------
+# qBittorrent state filters. Common choices:
+#   completed  -> fully downloaded (any upload state)
+#   seeding    -> currently seeding / uploading
+# You can list one or both. Torrents matching any listed filter are processed.
+states:
+  - completed
+  - seeding
+
+# --- Behaviour -------------------------------------------------------------
+# When true, print what WOULD happen but change nothing. Great for a first run.
+dry_run: true
+
+# After setting a category, enable "Automatic Torrent Management" on the
+# torrent so qBittorrent physically relocates its data into that category's
+# configured save path. This is what actually moves the files.
+enable_autotmm: true
+
+# If a rule targets a category that does not exist in qBittorrent yet,
+# create it. When a rule provides `save_path`, it is used; otherwise the
+# category is created with qBittorrent's default path.
+create_missing_categories: false
+
+# Category to apply when NO rule matches a torrent.
+#   null  -> leave the torrent untouched (recommended)
+#   "..." -> a category name to use as a catch-all
+default_category: null
+
+# --- Rules -----------------------------------------------------------------
+# Evaluated top-to-bottom; the FIRST rule whose conditions all match wins.
+# `category` must name a category that exists in qBittorrent (unless
+# create_missing_categories is true). qBittorrent's own save path for that
+# category determines where the files end up.
+#
+# Available match conditions (all listed conditions must pass = AND):
+#   name_regex:         a regex tested (case-insensitive) against torrent name
+#   name_contains:      list of substrings; matches if the name contains ANY
+#   tracker_contains:   list of substrings tested against the torrent's tracker
+#   save_path_contains: list of substrings tested against current save path
+#   category_is:        list of current category names to re-sort (e.g. [""])
+#   min_size_gb:        only torrents at least this large
+#   max_size_gb:        only torrents at most this large
+#
+# Optionally give a rule a `save_path` used ONLY when create_missing_categories
+# creates the category for the first time.
+rules:
+  - name: "TV episodes"
+    category: "TV"
+    name_regex: "s\\d{1,2}e\\d{1,2}|\\b\\d{1,2}x\\d{2}\\b|season\\s?\\d+"
+
+  - name: "Movies"
+    category: "Movies"
+    name_regex: "(1080p|2160p|720p|bluray|x264|x265|web-?dl|remux)"
+
+  - name: "Music"
+    category: "Music"
+    name_regex: "(flac|mp3|\\b320\\b|discography|\\balbum\\b)"
+
+  - name: "Software / Games"
+    category: "Software"
+    name_regex: "(x64|repack|codex|fitgirl|iso|setup|keygen)"
+
+# --- Audiobook organizing --------------------------------------------------
+# Post-process completed torrents in the audiobook category so their on-disk
+# layout matches the qBittorrent name, parsed as "Title <delimiter> Author":
+#   * single-file torrent -> <Author>/<Title>/<Title>.<ext>  (folder created,
+#     file renamed)
+#   * multi-file torrent   -> the content folder is renamed to <Author>/<Title>
+#     (inner files left as-is)
+# Renames go through qBittorrent's API, so they work on the machine holding the
+# data (e.g. your NAS). Respects dry_run — always preview first.
+audiobooks:
+  enabled: false               # set true to activate; run with --organize-audiobooks
+  category: "Audiobooks"       # which qBittorrent category to process
+  delimiter: " - "             # split the name as "Title<delimiter>Author" (last match)
+  folder_template: "{author}/{title}"   # available fields: {author} {title}
+  file_template: "{title}"     # single-file rename (extension is preserved)
+  sanitize: true               # make names safe for Windows/SMB (: * ? " < > |)
+
+# --- Sonarr / Radarr -------------------------------------------------------
+# After completed torrents are categorized, tell each *arr instance to process
+# its download-client queue (default command 'RefreshMonitoredDownloads'), so
+# it imports the finished download. URL + api_key can also come from env vars:
+#   SONARR_URL / SONARR_API_KEY / SONARR_ENABLED
+#   RADARR_URL / RADARR_API_KEY / RADARR_ENABLED
+arr:
+  sonarr:
+    enabled: false
+    url: "http://localhost:8989"
+    api_key: ""                # Sonarr -> Settings -> General -> API Key
+    category: "TV-Sonarr"      # trigger when completed torrents have this category
+    command: "RefreshMonitoredDownloads"
+  radarr:
+    enabled: false
+    url: "http://localhost:7878"
+    api_key: ""                # Radarr -> Settings -> General -> API Key
+    category: "Movies - Radarr"
+    command: "RefreshMonitoredDownloads"
+
+# --- Automatic runs (used by the web service / Docker container) -----------
+# Poll qBittorrent every N minutes and run the full pipeline (categorize ->
+# organize audiobooks -> notify *arr). The container also exposes a webhook at
+# POST /api/hooks/complete for qBittorrent's 'run external program on completion'.
+poll:
+  enabled: false               # set true (or POLL_ENABLED=true) for the container
+  interval_minutes: 2

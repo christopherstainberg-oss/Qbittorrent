@@ -1,0 +1,13 @@
+# Keep the image small and never bake secrets/config into it.
+config.yaml
+*.local.yaml
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+.venv/
+venv/
+*.md
+scratchpad/
+.DS_Store

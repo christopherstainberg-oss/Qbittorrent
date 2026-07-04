@@ -1,0 +1,31 @@
+services:
+  qbit-sorter:
+    build: .
+    # Or use a prebuilt image instead of build:  image: qbit-sorter:latest
+    container_name: qbit-sorter
+    restart: unless-stopped
+    ports:
+      - "8500:8500"                 # web UI + API + webhook  ->  http://<host>:8500
+    volumes:
+      # Mount your config.yaml (copied from config.example.yaml). Read-WRITE so
+      # the web UI can save rule/category/settings edits back to the file.
+      - ./config.yaml:/config/config.yaml
+    environment:
+      # --- run automatically in the container ---
+      POLL_ENABLED: "true"          # poll qBittorrent on a schedule
+      POLL_INTERVAL_MINUTES: "2"
+      DRY_RUN: "false"              # set "true" to make the container preview-only
+
+      # --- secrets (override config.yaml so they stay out of the file) ---
+      # QBIT_HOST: "http://192.168.0.180:2085"
+      # QBIT_USERNAME: "admin"
+      # QBIT_PASSWORD: "changeme"
+      # SONARR_ENABLED: "true"
+      # SONARR_URL: "http://192.168.0.180:8989"
+      # SONARR_API_KEY: "xxxxxxxx"
+      # RADARR_ENABLED: "true"
+      # RADARR_URL: "http://192.168.0.180:7878"
+      # RADARR_API_KEY: "xxxxxxxx"
+
+      # --- optional: require a token on the completion webhook ---
+      # WEBHOOK_TOKEN: "some-long-random-string"

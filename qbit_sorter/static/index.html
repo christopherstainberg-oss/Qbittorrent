@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>qBittorrent Auto-Sorter</title>
+<style>
+  :root {
+    --bg:#0f1720; --panel:#16212e; --panel2:#1c2a3a; --line:#2a3b4d;
+    --text:#e6edf3; --muted:#8ba0b4; --accent:#4aa3df; --accent2:#2f8f5b;
+    --warn:#d98c3a; --danger:#d95c5c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 system-ui,"Segoe UI",Roboto,sans-serif}
+  header{padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header .meta{color:var(--muted);font-size:12px}
+  main{padding:16px 20px;max-width:1200px;margin:0 auto}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap}
+  .tab{padding:9px 16px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:13px}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .view{display:none}
+  .view.active{display:block}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    padding:8px 14px;border-radius:7px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#04121d;font-weight:600}
+  button.go{background:var(--accent2);border-color:var(--accent2);color:#04160c;font-weight:600}
+  button.danger{border-color:var(--danger);color:var(--danger)}
+  button.sm{padding:4px 9px;font-size:12px}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  select,input[type=text],input[type=number],input[type=password]{background:var(--panel2);color:var(--text);
+    border:1px solid var(--line);padding:7px 10px;border-radius:7px;font-size:13px}
+  input[type=text],input[type=password]{min-width:0}
+  label{font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:8px;overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+  th{color:var(--muted);font-weight:500;user-select:none}
+  tr:last-child td{border-bottom:none}
+  td.name{max-width:440px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pill{padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+  .pill.change{color:var(--warn);border-color:var(--warn)}
+  .pill.on{color:var(--accent2);border-color:var(--accent2)}
+  .pill.off{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .muted{color:var(--muted)}
+  .hidden{display:none}
+  .log{background:#0b1219;border:1px solid var(--line);border-radius:8px;padding:12px;
+    font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;
+    max-height:240px;overflow:auto;margin-top:14px}
+  .cats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+  .cat{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-size:12px}
+  .cat b{color:var(--accent)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:12px}
+  .card h3{margin:0 0 10px;font-size:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+  .field{display:flex;flex-direction:column;gap:3px}
+  .field input,.field select{width:100%}
+  .row-actions{display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:20px 0 8px}
+  .count{color:var(--muted);font-size:12px;margin-left:6px}
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);
+    border:1px solid var(--accent);padding:10px 14px;border-radius:8px;opacity:0;
+    transition:opacity .2s;pointer-events:none;max-width:420px}
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--danger)}
+  .hint{font-size:12px;color:var(--muted);margin:4px 0 12px}
+  code{background:#0b1219;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
+  a{color:var(--accent)}
+  .switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <h1>qBittorrent Auto-Sorter</h1>
+  <span class="meta" id="conn">connecting…</span>
+</header>
+<main>
+  <div class="tabs">
+    <div class="tab active" data-tab="torrents">Torrents</div>
+    <div class="tab" data-tab="rules">Rules</div>
+    <div class="tab" data-tab="categories">Categories &amp; Placement</div>
+    <div class="tab" data-tab="automation">Automation</div>
+  </div>
+
+  <!-- ============ TORRENTS ============ -->
+  <section class="view active" id="view-torrents">
+    <div class="bar">
+      <button id="refresh">↻ Refresh</button>
+      <button id="preview" class="primary">Preview rules</button>
+      <button id="apply" class="go">Apply rules ▶</button>
+      <button id="abPreview" class="hidden">Preview audiobooks</button>
+      <button id="abApply" class="go hidden">Organize audiobooks ▶</button>
+      <button id="pipeline" title="categorize → audiobooks → notify Sonarr/Radarr">Run all now ⟳</button>
+      <span style="flex:1"></span>
+      <span class="muted">Manual:</span>
+      <select id="manualCat"><option value="">— category —</option></select>
+      <button id="manualSet">Set selected</button>
+    </div>
+    <h2>Torrents <span class="count" id="torCount"></span></h2>
+    <table>
+      <thead><tr>
+        <th style="width:28px"><input type="checkbox" id="selAll"></th>
+        <th>Name</th><th style="width:110px">State</th>
+        <th style="width:150px">Current</th><th style="width:160px">Proposed</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- ============ RULES ============ -->
+  <section class="view" id="view-rules">
+    <p class="hint">Rules are evaluated top-to-bottom; the first match wins. Each condition
+      is optional — a rule matches when <b>all</b> the conditions you set pass. Comma-separate
+      list fields. Changes are saved to <code>config.yaml</code>.</p>
+    <div class="bar">
+      <button id="addRule" class="primary">+ Add rule</button>
+      <button id="saveRules" class="go">Save rules</button>
+      <button id="reloadRules">Revert</button>
+    </div>
+    <div id="ruleList"></div>
+  </section>
+
+  <!-- ============ CATEGORIES ============ -->
+  <section class="view" id="view-categories">
+    <p class="hint">These are your qBittorrent categories and the folder each one saves to
+      (its “placement”). Edit a save path and Save to move future/relocated torrents there.
+      A category with no save path is managed elsewhere (e.g. Sonarr/Radarr) and won’t be
+      physically moved by this app.</p>
+    <div class="bar">
+      <input type="text" id="newCatName" placeholder="new category name" style="width:200px">
+      <input type="text" id="newCatPath" placeholder="/save/path (optional)" style="width:280px">
+      <button id="addCat" class="primary">+ Add category</button>
+      <button id="reloadCats">↻ Refresh</button>
+    </div>
+    <table>
+      <thead><tr><th style="width:230px">Category</th><th>Save path (placement)</th><th style="width:90px"></th></tr></thead>
+      <tbody id="catRows"><tr><td colspan="3" class="muted">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- ============ AUTOMATION ============ -->
+  <section class="view" id="view-automation">
+    <div class="card">
+      <h3>Run when downloads complete</h3>
+      <p class="hint">Two ways to trigger the pipeline (categorize → organize audiobooks →
+        notify Sonarr/Radarr). Use either or both.</p>
+      <div class="grid">
+        <div class="field">
+          <label class="switch"><input type="checkbox" id="setPoll"> Poll qBittorrent automatically</label>
+          <span class="hint">Runs on a repeating timer inside the service.</span>
+        </div>
+        <div class="field">
+          <label>Poll interval (minutes)</label>
+          <input type="number" id="setInterval" min="0.25" step="0.25" style="width:120px">
+        </div>
+        <div class="field">
+          <label class="switch"><input type="checkbox" id="setDry"> Dry-run (preview only, make no changes)</label>
+          <span class="hint">Turn off to let automatic runs act for real.</span>
+        </div>
+      </div>
+      <div class="row-actions"><button id="saveSettings" class="go">Save automation settings</button></div>
+      <h2>qBittorrent completion webhook</h2>
+      <p class="hint">In qBittorrent → Options → Downloads → “Run external program on torrent
+        completion”, paste:</p>
+      <div class="bar">
+        <input type="text" id="hookUrl" readonly style="flex:1;min-width:300px">
+        <button id="copyHook" class="sm">Copy</button>
+      </div>
+      <p class="hint">If you set a <code>WEBHOOK_TOKEN</code> env var, append <code>&amp;token=YOURTOKEN</code>.</p>
+    </div>
+
+    <div class="card">
+      <h3>Sonarr / Radarr</h3>
+      <p class="hint">After completed torrents are categorized, notify these to import their
+        finished downloads. Get the API key from the app’s Settings → General.</p>
+      <div id="arrForms"></div>
+      <div class="row-actions"><button id="saveArr" class="go">Save Sonarr/Radarr</button></div>
+    </div>
+
+    <div class="card">
+      <h3>Backend connection (for Cloudflare Pages / remote UI)</h3>
+      <p class="hint">Leave blank when this page is served by the app itself. When hosting this
+        UI on Cloudflare Pages, set it to your backend’s public URL (e.g. your Cloudflare Tunnel
+        hostname). Saved in this browser only.</p>
+      <div class="bar">
+        <input type="text" id="apiBase" placeholder="https://qbit-sorter.example.com" style="flex:1;min-width:300px">
+        <button id="saveApiBase" class="primary">Save &amp; reconnect</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="log" id="log">Ready.</div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+let API = (localStorage.getItem("apiBase") || "").replace(/\/+$/, "");
+let CATEGORIES = [];   // [{name, save_path}]
+let RULES = [];        // working copy of rule dicts
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => (
+  {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function toast(msg, isErr){ const t=$("#toast"); t.textContent=msg;
+  t.classList.toggle("err",!!isErr); t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),2800); }
+function logLine(m){ const el=$("#log"); el.textContent += "\n"+m; el.scrollTop=el.scrollHeight; }
+async function api(path, opts){
+  const res = await fetch(API + path, opts);
+  if(!res.ok){ let d=res.statusText; try{ d=(await res.json()).detail||d; }catch(e){} throw new Error(d); }
+  return res.status===204 ? null : res.json();
+}
+function fmtSize(b){ if(!b) return ""; const u=["B","KB","MB","GB","TB"]; let i=0,n=b;
+  while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(n<10&&i>0?1:0)+" "+u[i]; }
+const listVal = (a)=>Array.isArray(a)?a.join(", "):"";
+const parseList = (s)=>String(s||"").split(",").map(x=>x.trim()).filter(Boolean);
+
+/* ---------- tabs ---------- */
+$$(".tab").forEach(t => t.onclick = () => {
+  $$(".tab").forEach(x=>x.classList.remove("active"));
+  $$(".view").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");
+  $("#view-"+t.dataset.tab).classList.add("active");
+});
+
+/* ---------- info / header ---------- */
+async function loadInfo(){
+  try{
+    const i = await api("/api/info");
+    $("#conn").innerHTML = `connected to <b>${esc(i.host)}</b> · qBittorrent ${esc(i.version)} · `
+      + `${i.rules.length} rule(s) · poll ${i.poll.enabled?"on":"off"} · `
+      + `${i.dry_run?'<span style="color:var(--warn)">dry-run</span>':"live"}`;
+    const showAb = !!i.audiobooks_enabled;
+    $("#abPreview").classList.toggle("hidden",!showAb);
+    $("#abApply").classList.toggle("hidden",!showAb);
+  }catch(e){ $("#conn").textContent = "connection error: "+e.message; }
+}
+
+/* ---------- categories ---------- */
+async function loadCategories(){
+  CATEGORIES = await api("/api/categories");
+  // manual dropdown
+  const sel = $("#manualCat");
+  sel.innerHTML = '<option value="">— category —</option>'
+    + CATEGORIES.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join("");
+  // categories tab table
+  $("#catRows").innerHTML = CATEGORIES.length ? CATEGORIES.map(c=>`
+    <tr>
+      <td><b>${esc(c.name)}</b></td>
+      <td><input type="text" class="catpath" data-name="${esc(c.name)}" value="${esc(c.save_path)}"
+           placeholder="(no save path — managed elsewhere)" style="width:100%"></td>
+      <td><button class="sm savecat" data-name="${esc(c.name)}">Save</button></td>
+    </tr>`).join("")
+    : '<tr><td colspan="3" class="muted">No categories in qBittorrent.</td></tr>';
+}
+
+/* ---------- torrents ---------- */
+async function loadTorrents(){
+  const torrents = await api("/api/torrents");
+  $("#torCount").textContent = `(${torrents.length})`;
+  if(!torrents.length){ $("#rows").innerHTML='<tr><td colspan="5" class="muted">No completed/seeding torrents.</td></tr>'; return; }
+  $("#rows").innerHTML = torrents.map(t=>{
+    const cur = t.category ? esc(t.category) : '<span class="muted">none</span>';
+    let prop;
+    if(t.proposed && t.changes) prop = `<span class="arrow">→</span> <span class="pill change">${esc(t.proposed)}</span>`;
+    else if(t.proposed) prop = `<span class="pill">${esc(t.proposed)}</span>`;
+    else prop = '<span class="muted">no match</span>';
+    return `<tr>
+      <td><input type="checkbox" class="rowchk" data-hash="${t.hash}" ${t.changes?"checked":""}></td>
+      <td class="name" title="${esc(t.name)}">${esc(t.name)}<div class="muted" style="font-size:11px">${fmtSize(t.size)} · ${esc(t.save_path)}</div></td>
+      <td class="muted">${esc(t.state)}</td>
+      <td>${cur}</td><td>${prop}</td>
+    </tr>`;
+  }).join("");
+}
+const selectedHashes = ()=>$$(".rowchk:checked").map(c=>c.dataset.hash);
+
+async function refreshAll(){ await Promise.all([loadInfo(), loadCategories(), loadTorrents()]); }
+
+$("#refresh").onclick = ()=>refreshAll().then(()=>toast("Refreshed"));
+$("#selAll").onchange = (e)=>$$(".rowchk").forEach(c=>c.checked=e.target.checked);
+
+async function runRules(dry){
+  const btn = dry?$("#preview"):$("#apply"); btn.disabled=true;
+  try{
+    logLine((dry?"[preview] ":"[apply] ")+"running rules…");
+    const r = await api("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dry_run:dry})});
+    if(!r.results.length) logLine("  nothing to change — all sorted.");
+    r.results.forEach(x=>logLine(`  ${x.applied?"moved":(x.skipped?"SKIP":"would move")}: ${x.name} → ${x.category}  (${x.reason})${x.note?" — "+x.note:""}`));
+    logLine(`  ${dry?"would change":"changed"} ${r.results.filter(x=>!x.skipped).length} torrent(s).`);
+    toast(dry?"Preview complete":"Applied");
+    if(!dry){ await loadTorrents(); await loadInfo(); }
+  }catch(e){ logLine("  ERROR: "+e.message); toast(e.message,true); } finally{ btn.disabled=false; }
+}
+$("#preview").onclick = ()=>runRules(true);
+$("#apply").onclick = ()=>{ if(confirm("Apply rules and move data into each category's save path?")) runRules(false); };
+
+async function runAudiobooks(dry){
+  const btn = dry?$("#abPreview"):$("#abApply"); btn.disabled=true;
+  try{
+    logLine((dry?"[audiobooks preview] ":"[audiobooks] ")+"scanning…");
+    const r = await api("/api/audiobooks/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dry_run:dry})});
+    if(!r.results.length) logLine("  no completed torrents in category '"+r.category+"'.");
+    r.results.forEach(x=>{
+      if(x.skipped){ logLine(`  skip: ${x.name}  (${x.note})`); return; }
+      logLine(`  ${x.applied?"organized":"would organize"}: ${x.name}  ->  ${x.target}${x.note?" ["+x.note+"]":""}`);
+      x.ops.forEach(op=>logLine(`      ${op.method}: ${op.old}  ->  ${op.new}`));
+    });
+    logLine(`  ${dry?"would change":"changed"} ${r.count} torrent(s).`);
+    toast(dry?"Audiobook preview complete":"Audiobooks organized");
+    if(!dry) await loadTorrents();
+  }catch(e){ logLine("  ERROR: "+e.message); toast(e.message,true);} finally{ btn.disabled=false; }
+}
+$("#abPreview").onclick = ()=>runAudiobooks(true);
+$("#abApply").onclick = ()=>{ if(confirm("Rename audiobook files/folders on disk to <Author>/<Title>?")) runAudiobooks(false); };
+
+$("#pipeline").onclick = async ()=>{
+  const btn=$("#pipeline"); btn.disabled=true;
+  try{
+    logLine("[pipeline] categorize → audiobooks → notify *arr…");
+    const s = await api("/api/pipeline/run",{method:"POST"});
+    const nSort=(s.sorted||[]).filter(x=>!x.skipped).length, nAb=(s.audiobooks||[]).filter(x=>!x.skipped).length, nArr=(s.arr||[]).filter(x=>x.triggered).length;
+    (s.arr||[]).forEach(a=>logLine(`  *arr: ${a.triggered?"triggered":"no trigger"} ${a.service} (${a.command})${a.note?" — "+a.note:""}`));
+    logLine(`  ${s.dry_run?"[dry-run] ":""}sorted ${nSort}, audiobooks ${nAb}, *arr ${nArr}.`);
+    toast("Pipeline complete"); await Promise.all([loadTorrents(),loadCategories(),loadInfo()]);
+  }catch(e){ logLine("  ERROR: "+e.message); toast(e.message,true);} finally{ btn.disabled=false; }
+};
+
+$("#manualSet").onclick = async ()=>{
+  const category=$("#manualCat").value, hashes=selectedHashes();
+  if(!category) return toast("Pick a category first",true);
+  if(!hashes.length) return toast("Select at least one torrent",true);
+  try{
+    const r = await api("/api/set-category",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,category})});
+    logLine(`[manual] set ${r.count} torrent(s) → ${r.category}`); toast(`Set ${r.count} → ${r.category}`); await loadTorrents();
+  }catch(e){ toast(e.message,true); logLine("[manual] ERROR: "+e.message); }
+};
+
+/* ---------- rules editor ---------- */
+function catOptions(sel){
+  const opts = CATEGORIES.map(c=>`<option value="${esc(c.name)}" ${c.name===sel?"selected":""}>${esc(c.name)}</option>`).join("");
+  const known = CATEGORIES.some(c=>c.name===sel);
+  const extra = (sel && !known) ? `<option value="${esc(sel)}" selected>${esc(sel)} (not in qBittorrent)</option>` : "";
+  return `<option value="">— pick —</option>${extra}${opts}`;
+}
+function ruleCard(r, idx){
+  return `<div class="card" data-idx="${idx}">
+    <div class="grid">
+      <div class="field"><label>Rule name</label><input type="text" data-f="name" value="${esc(r.name)}"></div>
+      <div class="field"><label>Category</label><select data-f="category">${catOptions(r.category)}</select></div>
+      <div class="field"><label>Name regex</label><input type="text" data-f="name_regex" value="${esc(r.name_regex)}" placeholder="e.g. s\\d+e\\d+"></div>
+      <div class="field"><label>Name contains (any)</label><input type="text" data-f="name_contains" value="${esc(listVal(r.name_contains))}" placeholder="1080p, x265"></div>
+      <div class="field"><label>Tracker contains</label><input type="text" data-f="tracker_contains" value="${esc(listVal(r.tracker_contains))}"></div>
+      <div class="field"><label>Save path contains</label><input type="text" data-f="save_path_contains" value="${esc(listVal(r.save_path_contains))}"></div>
+      <div class="field"><label>Only if current category is</label><input type="text" data-f="category_is" value="${esc(listVal(r.category_is))}" placeholder='empty = "" for uncategorized'></div>
+      <div class="field"><label>Min size (GB)</label><input type="number" step="0.1" data-f="min_size_gb" value="${r.min_size_gb??""}"></div>
+      <div class="field"><label>Max size (GB)</label><input type="number" step="0.1" data-f="max_size_gb" value="${r.max_size_gb??""}"></div>
+      <div class="field"><label>Save path (only if creating category)</label><input type="text" data-f="save_path" value="${esc(r.save_path)}"></div>
+    </div>
+    <div class="row-actions">
+      <button class="sm mvUp">↑</button><button class="sm mvDown">↓</button>
+      <button class="sm danger delRule">Delete</button>
+      <span class="muted">rule #${idx+1}</span>
+    </div>
+  </div>`;
+}
+function renderRules(){ $("#ruleList").innerHTML = RULES.map(ruleCard).join("") || '<p class="muted">No rules. Add one.</p>'; }
+function collectRules(){
+  return $$("#ruleList .card").map(card=>{
+    const g=(f)=>card.querySelector(`[data-f="${f}"]`).value.trim();
+    const out={name:g("name")||"rule", category:g("category")};
+    if(g("name_regex")) out.name_regex=g("name_regex");
+    if(g("name_contains")) out.name_contains=parseList(g("name_contains"));
+    if(g("tracker_contains")) out.tracker_contains=parseList(g("tracker_contains"));
+    if(g("save_path_contains")) out.save_path_contains=parseList(g("save_path_contains"));
+    if(g("category_is")) out.category_is=parseList(g("category_is"));
+    if(g("min_size_gb")) out.min_size_gb=parseFloat(g("min_size_gb"));
+    if(g("max_size_gb")) out.max_size_gb=parseFloat(g("max_size_gb"));
+    if(g("save_path")) out.save_path=g("save_path");
+    return out;
+  });
+}
+async function loadRules(){ const c=await api("/api/config"); RULES=c.rules||[]; renderRules(); }
+$("#addRule").onclick = ()=>{ RULES=collectRules(); RULES.push({name:"New rule",category:""}); renderRules(); };
+$("#reloadRules").onclick = ()=>loadRules().then(()=>toast("Reverted to saved"));
+$("#ruleList").onclick = (e)=>{
+  const card=e.target.closest(".card"); if(!card) return; const idx=+card.dataset.idx;
+  if(e.target.classList.contains("delRule")){ RULES=collectRules(); RULES.splice(idx,1); renderRules(); }
+  else if(e.target.classList.contains("mvUp") && idx>0){ RULES=collectRules(); [RULES[idx-1],RULES[idx]]=[RULES[idx],RULES[idx-1]]; renderRules(); }
+  else if(e.target.classList.contains("mvDown") && idx<RULES.length-1){ RULES=collectRules(); [RULES[idx+1],RULES[idx]]=[RULES[idx],RULES[idx+1]]; renderRules(); }
+};
+$("#saveRules").onclick = async ()=>{
+  const rules=collectRules();
+  if(rules.some(r=>!r.category)) return toast("Every rule needs a category",true);
+  try{
+    const r=await api("/api/rules",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({rules})});
+    RULES=r.rules; renderRules(); toast("Rules saved"); logLine(`[rules] saved ${r.rules.length} rule(s).`); await loadInfo();
+  }catch(e){ toast(e.message,true); logLine("[rules] ERROR: "+e.message); }
+};
+
+/* ---------- categories editor ---------- */
+$("#reloadCats").onclick = ()=>loadCategories().then(()=>toast("Refreshed"));
+$("#addCat").onclick = async ()=>{
+  const name=$("#newCatName").value.trim(), save_path=$("#newCatPath").value.trim();
+  if(!name) return toast("Category name required",true);
+  try{
+    await api("/api/categories",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,save_path})});
+    $("#newCatName").value=""; $("#newCatPath").value=""; await loadCategories(); toast("Category added"); logLine(`[categories] added '${name}' → ${save_path||"(no path)"}`);
+  }catch(e){ toast(e.message,true); }
+};
+$("#catRows").onclick = async (e)=>{
+  if(!e.target.classList.contains("savecat")) return;
+  const name=e.target.dataset.name;
+  const save_path=$(`.catpath[data-name="${CSS.escape(name)}"]`).value.trim();
+  try{
+    await api("/api/categories",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,save_path})});
+    await loadCategories(); toast(`Saved placement for ${name}`); logLine(`[categories] '${name}' → ${save_path||"(no path)"}`);
+  }catch(e){ toast(e.message,true); }
+};
+
+/* ---------- automation ---------- */
+function hookUrlBase(){ return API || (location.origin); }
+async function loadAutomation(){
+  const c = await api("/api/config");
+  $("#setDry").checked = c.settings.dry_run;
+  $("#setPoll").checked = c.settings.poll_enabled;
+  $("#setInterval").value = c.settings.poll_interval_minutes;
+  $("#hookUrl").value = `curl -X POST "${hookUrlBase()}/api/hooks/complete?hash=%I"`;
+  $("#apiBase").value = localStorage.getItem("apiBase") || "";
+  // arr forms
+  const svc = (s)=>`<div class="grid" data-svc="${s.name}" style="margin-bottom:8px">
+      <div class="field"><label class="switch"><input type="checkbox" data-a="enabled" ${s.enabled?"checked":""}> ${s.name} enabled</label></div>
+      <div class="field"><label>URL</label><input type="text" data-a="url" value="${esc(s.url)}" placeholder="http://host:${s.name==='sonarr'?'8989':'7878'}"></div>
+      <div class="field"><label>API key ${s.api_key?"(set — leave blank to keep)":""}</label><input type="password" data-a="api_key" placeholder="${s.api_key?'••••••••':'paste API key'}"></div>
+      <div class="field"><label>Category</label><input type="text" data-a="category" value="${esc(s.category)}"></div>
+    </div>`;
+  $("#arrForms").innerHTML = (c.arr||[]).map(svc).join("") || '<p class="muted">No arr section in config.</p>';
+}
+$("#saveSettings").onclick = async ()=>{
+  const body={ dry_run:$("#setDry").checked, poll_enabled:$("#setPoll").checked, poll_interval_minutes:parseFloat($("#setInterval").value) };
+  try{ await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    toast("Automation settings saved"); logLine(`[settings] dry_run=${body.dry_run} poll=${body.poll_enabled} interval=${body.poll_interval_minutes}m`); await loadInfo();
+  }catch(e){ toast(e.message,true); }
+};
+$("#saveArr").onclick = async ()=>{
+  const body={};
+  $$("#arrForms .grid").forEach(g=>{
+    const name=g.dataset.svc, o={};
+    o.enabled=g.querySelector('[data-a="enabled"]').checked;
+    o.url=g.querySelector('[data-a="url"]').value.trim();
+    o.category=g.querySelector('[data-a="category"]').value.trim();
+    const key=g.querySelector('[data-a="api_key"]').value;
+    if(key) o.api_key=key;             // only send if changed
+    body[name]=o;
+  });
+  try{ await api("/api/arr",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    toast("Sonarr/Radarr saved"); logLine("[arr] saved"); await loadAutomation(); await loadInfo();
+  }catch(e){ toast(e.message,true); }
+};
+$("#copyHook").onclick = ()=>{ navigator.clipboard.writeText($("#hookUrl").value).then(()=>toast("Copied")); };
+$("#saveApiBase").onclick = ()=>{
+  const v=$("#apiBase").value.trim().replace(/\/+$/,"");
+  if(v) localStorage.setItem("apiBase",v); else localStorage.removeItem("apiBase");
+  API=v; toast("Backend set — reconnecting"); bootstrap();
+};
+
+/* ---------- lazy-load tab data ---------- */
+$$('.tab').forEach(t=>t.addEventListener("click",()=>{
+  if(t.dataset.tab==="rules") loadRules().catch(e=>toast(e.message,true));
+  if(t.dataset.tab==="categories") loadCategories().catch(e=>toast(e.message,true));
+  if(t.dataset.tab==="automation") loadAutomation().catch(e=>toast(e.message,true));
+}));
+
+async function bootstrap(){ try{ await refreshAll(); }catch(e){ toast(e.message,true); } }
+bootstrap();
+</script>
+</body>
+</html>
