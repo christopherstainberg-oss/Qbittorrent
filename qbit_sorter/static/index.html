@@ -99,9 +99,12 @@
       <button id="abApply" class="go hidden">Organize audiobooks ▶</button>
       <button id="pipeline" title="categorize → audiobooks → notify Sonarr/Radarr">Run all now ⟳</button>
       <span style="flex:1"></span>
-      <span class="muted">Manual:</span>
+      <span class="muted">Category:</span>
       <select id="manualCat"><option value="">— category —</option></select>
       <button id="manualSet">Set selected</button>
+      <span class="muted">Move to:</span>
+      <input type="text" id="manualPath" placeholder="/path/on/disk" style="width:170px">
+      <button id="manualMove" title="relocate selected torrents' data to this folder">Set location</button>
     </div>
     <h2>Torrents <span class="count" id="torCount"></span></h2>
     <table>
@@ -401,6 +404,17 @@ $("#manualSet").onclick = async ()=>{
     const r = await api("/api/set-category",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,category})});
     logLine(`[manual] set ${r.count} torrent(s) → ${r.category}`); toast(`Set ${r.count} → ${r.category}`); await loadTorrents();
   }catch(e){ toast(e.message,true); logLine("[manual] ERROR: "+e.message); }
+};
+
+$("#manualMove").onclick = async ()=>{
+  const location=$("#manualPath").value.trim(), hashes=selectedHashes();
+  if(!location) return toast("Enter a folder path",true);
+  if(!hashes.length) return toast("Select at least one torrent",true);
+  if(!confirm(`Move ${hashes.length} torrent(s)' data to:\n${location}\n\nThis physically relocates the files and turns off Automatic Torrent Management for them.`)) return;
+  try{
+    const r = await api("/api/set-location",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,location})});
+    logLine(`[location] moved ${r.count} torrent(s) → ${r.location}`); toast(`Moving ${r.count} → ${location}`); await loadTorrents();
+  }catch(e){ toast(e.message,true); logLine("[location] ERROR: "+e.message); }
 };
 
 /* ---------- rules editor ---------- */

@@ -63,6 +63,12 @@ class QbitClient:
     def set_default_save_path(self, path: str) -> None:
         self._client.app_set_preferences(prefs={"save_path": path})
 
+    def set_location(self, location: str, hashes: list[str]) -> None:
+        """Relocate torrents' data to an explicit folder (qBittorrent
+        'Set Location'). This physically moves the files and switches the
+        torrent(s) to manual mode (Automatic Torrent Management off)."""
+        self._client.torrents_set_location(location=location, torrent_hashes=hashes)
+
     def set_category(self, category: str, hashes: list[str]) -> None:
         self._client.torrents_set_category(category=category, torrent_hashes=hashes)
 

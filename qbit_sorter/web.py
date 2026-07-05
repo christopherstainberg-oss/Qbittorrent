@@ -68,6 +68,11 @@ class SavePathBody(BaseModel):
     save_path: str
 
 
+class SetLocationBody(BaseModel):
+    hashes: list[str]
+    location: str
+
+
 class _State:
     """Holds config + a lazily-connected client for the app's lifetime."""
 
@@ -363,6 +368,19 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         except ConfigError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"ok": True}
+
+    @app.post("/api/set-location")
+    def set_location(body: SetLocationBody) -> dict[str, Any]:
+        if not body.hashes:
+            raise HTTPException(status_code=400, detail="No torrents selected.")
+        loc = body.location.strip()
+        if not loc:
+            raise HTTPException(status_code=400, detail="Location path required.")
+        try:
+            state.client().set_location(loc, body.hashes)
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        return {"ok": True, "location": loc, "count": len(body.hashes)}
 
     @app.get("/api/default-save-path")
     def get_default_save_path() -> dict[str, Any]:
