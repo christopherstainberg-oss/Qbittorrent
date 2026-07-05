@@ -64,6 +64,10 @@ class CategoryBody(BaseModel):
     save_path: str = ""
 
 
+class SavePathBody(BaseModel):
+    save_path: str
+
+
 class _State:
     """Holds config + a lazily-connected client for the app's lifetime."""
 
@@ -359,6 +363,24 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         except ConfigError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"ok": True}
+
+    @app.get("/api/default-save-path")
+    def get_default_save_path() -> dict[str, Any]:
+        try:
+            return {"save_path": state.client().default_save_path()}
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+
+    @app.put("/api/default-save-path")
+    def set_default_save_path(body: SavePathBody) -> dict[str, Any]:
+        path = body.save_path.strip()
+        if not path:
+            raise HTTPException(status_code=400, detail="Save path required.")
+        try:
+            state.client().set_default_save_path(path)
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        return {"ok": True, "save_path": path}
 
     @app.post("/api/categories")
     def create_category(body: CategoryBody) -> dict[str, Any]:

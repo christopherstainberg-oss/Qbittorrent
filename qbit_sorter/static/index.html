@@ -129,7 +129,16 @@
 
   <!-- ============ CATEGORIES ============ -->
   <section class="view" id="view-categories">
-    <p class="hint">These are your qBittorrent categories and the folder each one saves to
+    <div class="card">
+      <h3>Default save path</h3>
+      <p class="hint">qBittorrent's global download location — where torrents with no
+        category-specific path are stored. Changing this updates qBittorrent itself.</p>
+      <div class="bar">
+        <input type="text" id="defaultSavePath" placeholder="/downloads" style="flex:1;min-width:300px">
+        <button id="saveDefaultPath" class="go">Save</button>
+      </div>
+    </div>
+    <p class="hint">Below are your qBittorrent categories and the folder each one saves to
       (its “placement”). Edit a save path and Save to move future/relocated torrents there.
       A category with no save path is managed elsewhere (e.g. Sonarr/Radarr) and won’t be
       physically moved by this app.</p>
@@ -257,7 +266,12 @@ async function loadInfo(){
 }
 
 /* ---------- categories ---------- */
+async function loadDefaultSavePath(){
+  try{ const r = await api("/api/default-save-path"); $("#defaultSavePath").value = r.save_path || ""; }
+  catch(e){ /* leave blank if unreachable */ }
+}
 async function loadCategories(){
+  loadDefaultSavePath();
   CATEGORIES = await api("/api/categories");
   // manual dropdown
   const sel = $("#manualCat");
@@ -452,6 +466,14 @@ $("#saveRules").onclick = async ()=>{
 };
 
 /* ---------- categories editor ---------- */
+$("#saveDefaultPath").onclick = async ()=>{
+  const save_path=$("#defaultSavePath").value.trim();
+  if(!save_path) return toast("Enter a save path",true);
+  try{
+    const r=await api("/api/default-save-path",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({save_path})});
+    toast("Default save path saved"); logLine(`[default path] → ${r.save_path}`);
+  }catch(e){ toast(e.message,true); }
+};
 $("#reloadCats").onclick = ()=>loadCategories().then(()=>toast("Refreshed"));
 $("#addCat").onclick = async ()=>{
   const name=$("#newCatName").value.trim(), save_path=$("#newCatPath").value.trim();

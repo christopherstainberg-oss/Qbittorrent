@@ -55,6 +55,14 @@ class QbitClient:
     def edit_category(self, name: str, save_path: str | None = None) -> None:
         self._client.torrents_edit_category(name=name, save_path=save_path or "")
 
+    def default_save_path(self) -> str:
+        """qBittorrent's global default save path (where torrents with no
+        category-specific path are stored)."""
+        return self._client.app.preferences.get("save_path", "") or ""
+
+    def set_default_save_path(self, path: str) -> None:
+        self._client.app_set_preferences(prefs={"save_path": path})
+
     def set_category(self, category: str, hashes: list[str]) -> None:
         self._client.torrents_set_category(category=category, torrent_hashes=hashes)
 
