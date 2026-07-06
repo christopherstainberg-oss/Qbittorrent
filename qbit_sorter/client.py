@@ -72,18 +72,26 @@ class QbitClient:
     def set_category(self, category: str, hashes: list[str]) -> None:
         self._client.torrents_set_category(category=category, torrent_hashes=hashes)
 
-    def relocate(self, save_path: str, hashes: list[str]) -> None:
-        """Physically move torrents into `save_path`, then keep them under
-        Automatic Torrent Management.
+    def organize(self, category: str, save_path: str, default_save_path: str,
+                 hashes: list[str]) -> tuple[int, int, str]:
+        """Move the **complete** torrents among `hashes` into the category's
+        folder and keep them AutoTMM-managed. Incomplete (still-downloading)
+        torrents are left where they are.
 
-        Unlike enabling AutoTMM on its own — which qBittorrent accepts even when
-        the destination is unwritable and then fails the move *silently* — this
-        issues an explicit Set Location, so qBittorrent raises HTTP 409
-        ("Cannot make save path") when it can't write there. That lets callers
-        report a failed relocation instead of falsely claiming success. Once the
-        data is in place we re-enable AutoTMM so the torrent stays managed."""
-        self._client.torrents_set_location(location=save_path, torrent_hashes=hashes)
-        self._client.torrents_set_auto_management(enable=True, torrent_hashes=hashes)
+        The destination is the category's own save path, or
+        ``<default_save_path>/<category>`` when the category has none — matching
+        qBittorrent's own AutoTMM convention, so every category organizes into a
+        folder. An explicit Set Location is used (not a bare AutoTMM enable) so an
+        unwritable path raises HTTP 409 instead of failing silently.
+
+        Returns ``(moved, skipped_incomplete, dest)``."""
+        dest = save_path or (default_save_path.rstrip("/") + "/" + category)
+        infos = self._client.torrents_info(torrent_hashes=hashes)
+        complete = [t.get("hash") for t in infos if float(t.get("progress") or 0) >= 1.0]
+        if complete:
+            self._client.torrents_set_location(location=dest, torrent_hashes=complete)
+            self._client.torrents_set_auto_management(enable=True, torrent_hashes=complete)
+        return len(complete), len(hashes) - len(complete), dest
 
     # ---- Download-queue priority -------------------------------------------
     # These reorder torrents in qBittorrent's download/seed queue. They only

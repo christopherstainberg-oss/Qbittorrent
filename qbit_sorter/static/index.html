@@ -411,9 +411,10 @@ async function setOne(hash, category, which){
   try{
     const r = await api("/api/set-category",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({hashes:[hash],category})});
-    logLine(`[${which}] ${hash.slice(0,8)}… → ${category||"(none)"}${r.relocated?"  (files moved)":""}${r.relocate_error?"  ⚠ move failed: "+r.relocate_error:""}`);
+    const moveInfo = r.relocated?"  (moved)":(r.skipped_incomplete?"  (still downloading — not moved)":"");
+    logLine(`[${which}] ${hash.slice(0,8)}… → ${category||"(none)"}${moveInfo}${r.relocate_error?"  ⚠ move failed: "+r.relocate_error:""}`);
     if(r.relocate_error) toast("Category set, but move failed: "+r.relocate_error, true);
-    else toast(`Set → ${category||"none"}`);
+    else toast(`Set → ${category||"none"}${r.relocated?" (moved)":""}`);
     await loadTorrents();
   }catch(e){ toast(e.message,true); logLine(`[${which}] ERROR: ${e.message}`); await loadTorrents(); }
 }
@@ -519,9 +520,10 @@ $("#manualSet").onclick = async ()=>{
   if(!hashes.length) return toast("Select at least one torrent",true);
   try{
     const r = await api("/api/set-category",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,category})});
-    logLine(`[manual] set ${r.count} torrent(s) → ${r.category}${r.relocate_error?"  ⚠ move failed: "+r.relocate_error:""}`);
+    const moveInfo = `  moved ${r.moved||0}` + (r.skipped_incomplete?`, ${r.skipped_incomplete} still downloading (not moved)`:"");
+    logLine(`[manual] set ${r.count} torrent(s) → ${r.category}${moveInfo}${r.relocate_error?"  ⚠ move failed: "+r.relocate_error:""}`);
     if(r.relocate_error) toast("Category set, but move failed: "+r.relocate_error, true);
-    else toast(`Set ${r.count} → ${r.category}`);
+    else toast(`Set ${r.count} → ${r.category} (moved ${r.moved||0})`);
     await loadTorrents();
   }catch(e){ toast(e.message,true); logLine("[manual] ERROR: "+e.message); }
 };

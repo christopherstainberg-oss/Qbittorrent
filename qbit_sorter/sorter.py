@@ -119,36 +119,35 @@ def apply_plan(cfg: Config, client: QbitClient, plans: list[Plan]) -> list[dict]
     for p in actionable:
         by_category[p.category].append(p)
 
+    # Auto-organize moves each torrent into its category's folder (the
+    # category's save path, or <default>/<category> when it has none), so every
+    # category — not just ones with an explicit path — lands in a folder. Only
+    # complete torrents are moved; active downloads stay put.
+    default_path = client.default_save_path() if (cfg.enable_autotmm and not cfg.dry_run) else ""
     moved = 0
     for category, group in by_category.items():
         hashes = [p.torrent.hash for p in group]
-        # Only relocate data when the category has a real save path. Otherwise
-        # enabling AutoTMM would dump files into qBittorrent's default folder —
-        # for *arr-managed categories (no path) we just set the category and
-        # let the *arr app import the files.
-        has_path = bool(usable.get(category))
-        relocate = cfg.enable_autotmm and has_path
-        note = "" if (has_path or not cfg.enable_autotmm) else "category has no save path — category set only, files not moved"
+        relocate = cfg.enable_autotmm
+        note = "" if cfg.enable_autotmm else "auto-organize off — category set only, files not moved"
         for p in group:
             log.info(
-                "%s'%s'  ->  category '%s'  (%s)%s",
+                "%s'%s'  ->  category '%s'  (%s)",
                 "[dry-run] " if cfg.dry_run else "",
                 p.torrent.name, category, p.reason,
-                f"  [{note}]" if note else "",
             )
         if not cfg.dry_run:
             client.set_category(category, hashes)
             if relocate:
-                # Physically move the data into the category's save path. Using
-                # an explicit Set Location (not a bare AutoTMM enable) means an
-                # unwritable save path surfaces as an error instead of failing
-                # silently — so we report the move honestly.
                 try:
-                    client.relocate(usable[category], hashes)
-                except Exception as exc:  # noqa: BLE001
+                    n_moved, n_skip, dest = client.organize(
+                        category, usable.get(category, ""), default_path, hashes)
+                    relocate = n_moved > 0
+                    note = f"moved {n_moved} into {dest}" + (
+                        f", {n_skip} still downloading (not moved)" if n_skip else "")
+                except Exception as exc:  # noqa: BLE001 — unwritable save path etc.
                     relocate = False
                     note = f"relocation failed — {exc}"
-                    log.warning("Relocation to '%s' failed: %s", usable[category], exc)
+                    log.warning("Relocation for category '%s' failed: %s", category, exc)
         for p in group:
             results.append({
                 "name": p.torrent.name, "hash": p.torrent.hash,

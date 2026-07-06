@@ -342,22 +342,27 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
                 meta = cats[body.category]
                 save_path = meta.get("savePath", "") if isinstance(meta, dict) else ""
             client.set_category(body.category, body.hashes)
-            # Only relocate when the category has a real save path (see sorter).
-            relocate = state.cfg.enable_autotmm and bool(save_path)
+            # Auto-organize into the category's folder (its save path, or
+            # <default>/<category>). Only complete torrents are moved — active
+            # downloads stay put. Explicit Set Location surfaces a bad path.
+            relocated = False
+            moved = skipped_incomplete = 0
             relocate_error = None
-            if relocate:
+            if state.cfg.enable_autotmm:
                 try:
-                    client.relocate(save_path, body.hashes)
+                    default_path = client.default_save_path()
+                    moved, skipped_incomplete, _dest = client.organize(
+                        body.category, save_path, default_path, body.hashes)
+                    relocated = moved > 0
                 except Exception as exc:  # noqa: BLE001 — bad/unwritable save path
-                    # The category change stuck; be honest that the move did not.
-                    relocate = False
                     relocate_error = str(exc)
         except HTTPException:
             raise
         except Exception as exc:  # noqa: BLE001
             raise _err(exc)
         return {"ok": True, "category": body.category, "count": len(body.hashes),
-                "relocated": relocate, "relocate_error": relocate_error}
+                "relocated": relocated, "moved": moved,
+                "skipped_incomplete": skipped_incomplete, "relocate_error": relocate_error}
 
     # ---- Editing: rules / settings / arr / category placement --------------
 
