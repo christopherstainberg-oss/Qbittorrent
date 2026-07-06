@@ -152,6 +152,32 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    # Static PWA assets (manifest, service worker, icons). Served from the app
+    # root so the service worker's scope covers the whole UI. Cloudflare Pages
+    # serves these directly from the static dir; this route covers the
+    # container/tunnel deployment.
+    _STATIC_ASSETS = {
+        "manifest.webmanifest": "application/manifest+json",
+        "sw.js": "text/javascript",
+        "favicon.svg": "image/svg+xml",
+        "favicon-32.png": "image/png",
+        "apple-touch-icon.png": "image/png",
+        "icon-192.png": "image/png",
+        "icon-512.png": "image/png",
+        "icon-maskable-192.png": "image/png",
+        "icon-maskable-512.png": "image/png",
+    }
+
+    @app.get("/{filename}")
+    def static_asset(filename: str) -> FileResponse:
+        media_type = _STATIC_ASSETS.get(filename)
+        path = STATIC_DIR / filename
+        if media_type is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        # Let service-worker updates land promptly; browsers must revalidate it.
+        headers = {"Cache-Control": "no-cache"} if filename == "sw.js" else {}
+        return FileResponse(path, media_type=media_type, headers=headers)
+
     @app.get("/api/info")
     def info() -> dict[str, Any]:
         c = state.client()._client  # underlying qbittorrentapi client

@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>qBittorrent Auto-Sorter</title>
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#16212e" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Qbit Sorter" />
 <style>
   :root {
     --bg:#0f1720; --panel:#16212e; --panel2:#1c2a3a; --line:#2a3b4d;
@@ -740,6 +749,16 @@ async function bootstrap(){
   }
 }
 bootstrap();
+
+/* ---------- PWA service worker ---------- */
+// Registers only in a secure context (HTTPS or localhost). Over plain HTTP on
+// a LAN IP browsers block SW registration — the app still works, it just isn't
+// installable there; serve it over the Cloudflare Tunnel (HTTPS) for full PWA.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW registration failed:", e));
+  });
+}
 </script>
 </body>
 </html>
