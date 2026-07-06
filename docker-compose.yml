@@ -10,6 +10,12 @@ services:
       # Mount your config.yaml (copied from config.example.yaml). Read-WRITE so
       # the web UI can save rule/category/settings edits back to the file.
       - ./config.yaml:/config/config.yaml
+      # --- Library relocation (Sonarr/Radarr-style), OPTIONAL ---------------
+      # To let this app move completed torrents into a library qBittorrent can't
+      # reach, mount qBittorrent's download storage AND each destination here,
+      # then set relocation.local_download_root / destinations[].path to match.
+      #   - /path/to/qbittorrent/downloads:/downloads      # local_download_root
+      #   - /path/to/media/library:/library                # destinations[].path root
     environment:
       # --- run automatically in the container ---
       POLL_ENABLED: "true"          # poll qBittorrent on a schedule

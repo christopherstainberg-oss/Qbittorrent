@@ -80,6 +80,30 @@ class PollConfig:
 
 
 @dataclass
+class Destination:
+    """A category whose completed torrents get relocated to an external library
+    path (outside qBittorrent's download folder), Sonarr/Radarr-style."""
+
+    category: str
+    path: str                 # where THIS app writes (its mount of the library)
+    mode: str = "hardlink"    # hardlink | copy | move
+
+
+@dataclass
+class RelocationConfig:
+    """App-side library relocation. Because the sorter moves files itself (via
+    its own mounts), it can reach destinations qBittorrent cannot. Paths in
+    qBittorrent (content_path) are rooted at `qbit_download_root`; the same
+    storage must be mounted into this app at `local_download_root` so it can
+    read the source files."""
+
+    enabled: bool = False
+    qbit_download_root: str = ""    # prefix qBittorrent uses, e.g. /Torrents
+    local_download_root: str = ""   # where THIS app has that storage mounted
+    destinations: list[Destination] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     qbittorrent: QbitConfig
     states: list[str]
@@ -91,6 +115,7 @@ class Config:
     audiobooks: AudiobookConfig = field(default_factory=AudiobookConfig)
     arr: list[ArrServiceConfig] = field(default_factory=list)
     poll: PollConfig = field(default_factory=PollConfig)
+    relocation: RelocationConfig = field(default_factory=RelocationConfig)
 
 
 def _as_str_list(value: Any, where: str) -> list[str]:
@@ -247,6 +272,8 @@ def load_config(path: str | Path) -> Config:
                                          poll_raw.get("interval_minutes", 2.0))),
     )
 
+    relocation = _parse_relocation(raw.get("relocation") or {})
+
     return Config(
         qbittorrent=qbit,
         states=states,
@@ -258,7 +285,51 @@ def load_config(path: str | Path) -> Config:
         audiobooks=audiobooks,
         arr=arr,
         poll=poll,
+        relocation=relocation,
     )
+
+
+_RELOCATION_MODES = {"hardlink", "copy", "move"}
+
+
+def _parse_relocation(raw: dict) -> RelocationConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("'relocation' must be a mapping")
+    dests: list[Destination] = []
+    for i, d in enumerate(raw.get("destinations") or []):
+        if not isinstance(d, dict):
+            raise ConfigError(f"relocation.destinations[{i}] must be a mapping")
+        category, path = d.get("category"), d.get("path")
+        if not category or not path:
+            raise ConfigError(
+                f"relocation.destinations[{i}] needs both 'category' and 'path'")
+        mode = str(d.get("mode", "hardlink")).lower()
+        if mode not in _RELOCATION_MODES:
+            raise ConfigError(
+                f"relocation.destinations[{i}].mode must be one of "
+                f"{', '.join(sorted(_RELOCATION_MODES))}")
+        dests.append(Destination(category=str(category), path=str(path), mode=mode))
+    return RelocationConfig(
+        enabled=_env_bool("RELOCATION_ENABLED", bool(raw.get("enabled", False))),
+        qbit_download_root=os.getenv("QBIT_DOWNLOAD_ROOT",
+                                     str(raw.get("qbit_download_root", ""))),
+        local_download_root=os.getenv("LOCAL_DOWNLOAD_ROOT",
+                                      str(raw.get("local_download_root", ""))),
+        destinations=dests,
+    )
+
+
+def relocation_to_dict(rc: RelocationConfig) -> dict:
+    """Serialize RelocationConfig for the API / for writing to YAML."""
+    return {
+        "enabled": rc.enabled,
+        "qbit_download_root": rc.qbit_download_root,
+        "local_download_root": rc.local_download_root,
+        "destinations": [
+            {"category": d.category, "path": d.path, "mode": d.mode}
+            for d in rc.destinations
+        ],
+    }
 
 
 def _env_bool(name: str, default: bool) -> bool:

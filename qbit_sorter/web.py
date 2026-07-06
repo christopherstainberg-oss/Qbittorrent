@@ -23,9 +23,10 @@ from pydantic import BaseModel
 
 from . import audiobooks as ab_mod
 from . import config_store
+from . import relocator
 from .client import QbitClient
 from .config import (VALID_STATES, Config, ConfigError, load_config,
-                     rule_to_dict, validate_rules)
+                     relocation_to_dict, rule_to_dict, validate_rules)
 from .rules import TorrentView, match_torrent
 from .scheduler import PipelineRunner
 from .sorter import Plan, apply_plan, build_plan
@@ -85,6 +86,13 @@ class QueueingBody(BaseModel):
 class SetFilePriorityBody(BaseModel):
     hashes: list[str]
     priority: int  # 0 do-not-download, 1 normal, 6 high, 7 maximal
+
+
+class RelocationBody(BaseModel):
+    enabled: bool | None = None
+    qbit_download_root: str | None = None
+    local_download_root: str | None = None
+    destinations: list[dict] | None = None
 
 
 class _State:
@@ -319,6 +327,26 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         return {"dry_run": body.dry_run, "category": state.cfg.audiobooks.category,
                 "count": len(changed), "results": results}
 
+    @app.post("/api/relocate/run")
+    def relocate_run(body: RunBody) -> dict[str, Any]:
+        """Relocate completed torrents in destination categories to their
+        external library paths (Sonarr/Radarr-style, app-side transfer)."""
+        rc = state.cfg.relocation
+        if not rc.destinations:
+            raise HTTPException(
+                status_code=400,
+                detail="No library destinations configured (Automation → Library relocation).")
+        if not rc.local_download_root:
+            raise HTTPException(
+                status_code=400,
+                detail="Set the download roots first so the app can read source files.")
+        try:
+            results = relocator.run(state.cfg, state.client(), dry_run=body.dry_run)
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        changed = [r for r in results if not r.get("skipped")]
+        return {"dry_run": body.dry_run, "count": len(changed), "results": results}
+
     @app.post("/api/set-category")
     def set_category(body: SetCategoryBody) -> dict[str, Any]:
         if not body.hashes:
@@ -389,7 +417,26 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
             "arr": [{"name": s.name, "enabled": s.enabled, "url": s.url,
                      "api_key": bool(s.api_key), "category": s.category,
                      "command": s.command} for s in state.cfg.arr],
+            "relocation": relocation_to_dict(state.cfg.relocation),
         }
+
+    @app.put("/api/relocation")
+    def put_relocation(body: RelocationBody) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if body.enabled is not None:
+            payload["enabled"] = body.enabled
+        if body.qbit_download_root is not None:
+            payload["qbit_download_root"] = body.qbit_download_root.strip()
+        if body.local_download_root is not None:
+            payload["local_download_root"] = body.local_download_root.strip()
+        if body.destinations is not None:
+            payload["destinations"] = body.destinations
+        try:
+            config_store.save_relocation(state.config_path, payload)
+            _reload()  # re-validates (mode values, required fields)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"ok": True, "relocation": relocation_to_dict(state.cfg.relocation)}
 
     @app.put("/api/rules")
     def put_rules(body: RulesBody) -> dict[str, Any]:

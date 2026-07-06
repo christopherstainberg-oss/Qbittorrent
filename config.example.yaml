@@ -121,3 +121,26 @@ arr:
 poll:
   enabled: false               # set true (or POLL_ENABLED=true) for the container
   interval_minutes: 2
+
+# --- Library relocation (Sonarr/Radarr-style) ------------------------------
+# Move COMPLETED torrents in a category out to a library path that qBittorrent
+# itself can't reach. THIS app does the transfer through its own mounts, so it
+# works even when the destination isn't in qBittorrent's filesystem.
+#
+# REQUIRED MOUNTS (docker): mount qBittorrent's download storage AND each
+# destination into this container, then map the roots below:
+#   qbit_download_root  = the path prefix qBittorrent reports (e.g. /Torrents)
+#   local_download_root = where THIS container has that same storage mounted
+# Env overrides: RELOCATION_ENABLED / QBIT_DOWNLOAD_ROOT / LOCAL_DOWNLOAD_ROOT
+#
+# mode: hardlink (default; instant, no extra space, keeps seeding — needs the
+#       same filesystem), copy (keeps seeding, uses space), or move (frees
+#       space but qBittorrent stops seeding that torrent).
+relocation:
+  enabled: false
+  qbit_download_root: "/Torrents"
+  local_download_root: "/downloads"
+  destinations:
+    - category: "Audiobooks"
+      path: "/library/Audiobooks"   # this container's mount of the library
+      mode: "hardlink"

@@ -89,3 +89,40 @@ def save_arr(path: str | Path, services: dict[str, dict]) -> None:
             if key in allowed:
                 node[key] = val
     _dump(path, data)
+
+
+def save_relocation(path: str | Path, cfg: dict) -> None:
+    """Persist the library-relocation config (Sonarr/Radarr-style destinations).
+
+    Validates *before* writing so a bad request can never leave config.yaml in
+    an unloadable state (blank rows are dropped; bad modes raise)."""
+    cleaned_dests = None
+    if "destinations" in cfg:
+        cleaned_dests = []
+        for d in cfg["destinations"]:
+            category, dpath = d.get("category"), d.get("path")
+            if not category or not dpath:
+                continue  # drop incomplete rows the UI may send
+            mode = str(d.get("mode", "hardlink")).lower()
+            if mode not in ("hardlink", "copy", "move"):
+                raise ConfigError(
+                    f"destination '{category}' has invalid mode '{mode}' "
+                    "(use hardlink, copy or move)")
+            cleaned_dests.append({"category": str(category), "path": str(dpath),
+                                  "mode": mode})
+
+    path = Path(path)
+    data = _load(path)
+    node = data.get("relocation")
+    if not isinstance(node, dict):
+        node = {}
+        data["relocation"] = node
+    if "enabled" in cfg:
+        node["enabled"] = bool(cfg["enabled"])
+    if "qbit_download_root" in cfg:
+        node["qbit_download_root"] = str(cfg["qbit_download_root"])
+    if "local_download_root" in cfg:
+        node["local_download_root"] = str(cfg["local_download_root"])
+    if cleaned_dests is not None:
+        node["destinations"] = cleaned_dests
+    _dump(path, data)

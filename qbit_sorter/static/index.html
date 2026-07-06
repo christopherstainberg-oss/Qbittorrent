@@ -249,6 +249,34 @@
     </div>
 
     <div class="card">
+      <h3>Library relocation (Sonarr/Radarr-style)</h3>
+      <p class="hint">Move completed torrents in a category out to a library path that qBittorrent
+        can't reach — the app hardlinks (or copies) the files itself. Requires mounting your
+        <b>download folder</b> and each <b>destination</b> into this container. Hardlink keeps
+        seeding and uses no extra space when source and destination share a filesystem.</p>
+      <div class="grid">
+        <div class="field"><label class="switch"><input type="checkbox" id="relEnabled"> Enable library relocation</label></div>
+        <div class="field"><label>qBittorrent download root (its path prefix, e.g. /Torrents)</label>
+          <input type="text" id="relQbitRoot" placeholder="/Torrents"></div>
+        <div class="field"><label>Local download root (where THIS app mounts it, e.g. /downloads)</label>
+          <input type="text" id="relLocalRoot" placeholder="/downloads"></div>
+      </div>
+      <h2>Destinations</h2>
+      <table>
+        <thead><tr><th style="width:200px">Category</th><th>Destination path (this app's mount)</th>
+          <th style="width:150px">Mode</th><th style="width:70px"></th></tr></thead>
+        <tbody id="relRows"></tbody>
+      </table>
+      <div class="row-actions">
+        <button id="relAdd" class="sm">+ Add destination</button>
+        <span style="flex:1"></span>
+        <button id="relSave" class="go">Save</button>
+        <button id="relPreview" class="primary">Preview</button>
+        <button id="relRun" class="go">Relocate now ▶</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Backend connection (for Cloudflare Pages / remote UI)</h3>
       <p class="hint">Leave blank when this page is served by the app itself. When hosting this
         UI on Cloudflare Pages, set it to your backend’s public URL (e.g. your Cloudflare Tunnel
@@ -695,7 +723,61 @@ async function loadAutomation(){
       <div class="field"><label>Category</label><input type="text" data-a="category" value="${esc(s.category)}"></div>
     </div>`;
   $("#arrForms").innerHTML = (c.arr||[]).map(svc).join("") || '<p class="muted">No arr section in config.</p>';
+  // library relocation
+  const rel = c.relocation || {enabled:false, qbit_download_root:"", local_download_root:"", destinations:[]};
+  $("#relEnabled").checked = !!rel.enabled;
+  $("#relQbitRoot").value = rel.qbit_download_root || "";
+  $("#relLocalRoot").value = rel.local_download_root || "";
+  REL_DESTS = (rel.destinations||[]).map(d=>({category:d.category, path:d.path, mode:d.mode||"hardlink"}));
+  renderRelRows();
 }
+/* ---------- library relocation ---------- */
+let REL_DESTS = [];   // [{category, path, mode}]
+function relModeOptions(sel){
+  return ["hardlink","copy","move"].map(m=>`<option value="${m}"${m===sel?" selected":""}>${m}</option>`).join("");
+}
+function renderRelRows(){
+  $("#relRows").innerHTML = REL_DESTS.length ? REL_DESTS.map((d,i)=>`
+    <tr data-i="${i}">
+      <td><input type="text" class="reld" data-f="category" value="${esc(d.category)}" list="catList" placeholder="category" style="width:100%"></td>
+      <td><input type="text" class="reld" data-f="path" value="${esc(d.path)}" placeholder="/library/…" style="width:100%"></td>
+      <td><select class="reld" data-f="mode">${relModeOptions(d.mode)}</select></td>
+      <td><button class="sm danger relDel">✕</button></td>
+    </tr>`).join("")
+    : '<tr><td colspan="4" class="muted">No destinations. Add one.</td></tr>';
+  // datalist of known categories for convenience
+  if(!$("#catList")){ const dl=document.createElement("datalist"); dl.id="catList"; document.body.appendChild(dl); }
+  $("#catList").innerHTML = CATEGORIES.map(c=>`<option value="${esc(c.name)}">`).join("");
+}
+function collectRelDests(){
+  return $$("#relRows tr[data-i]").map(tr=>{
+    const g=(f)=>tr.querySelector(`[data-f="${f}"]`)?.value.trim()||"";
+    return {category:g("category"), path:g("path"), mode:g("mode")||"hardlink"};
+  }).filter(d=>d.category && d.path);
+}
+$("#relAdd").onclick = ()=>{ REL_DESTS=collectRelDests(); REL_DESTS.push({category:"",path:"",mode:"hardlink"}); renderRelRows(); };
+$("#relRows").onclick = (e)=>{ if(e.target.classList.contains("relDel")){ const i=+e.target.closest("tr").dataset.i; REL_DESTS=collectRelDests(); REL_DESTS.splice(i,1); renderRelRows(); } };
+async function relSave(){
+  const body={ enabled:$("#relEnabled").checked, qbit_download_root:$("#relQbitRoot").value.trim(),
+    local_download_root:$("#relLocalRoot").value.trim(), destinations:collectRelDests() };
+  const r=await api("/api/relocation",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  REL_DESTS=r.relocation.destinations; renderRelRows(); return r;
+}
+$("#relSave").onclick = async ()=>{ try{ await relSave(); toast("Library relocation saved"); logLine("[relocation] config saved"); }catch(e){ toast(e.message,true); logLine("[relocation] ERROR: "+e.message); } };
+async function runRelocate(dry){
+  const btn=dry?$("#relPreview"):$("#relRun"); btn.disabled=true;
+  try{
+    await relSave();  // persist current edits first
+    logLine((dry?"[relocate preview] ":"[relocate] ")+"scanning destination categories…");
+    const r=await api("/api/relocate/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dry_run:dry})});
+    if(!r.results.length) logLine("  no completed torrents in any destination category.");
+    r.results.forEach(x=>logLine(`  ${x.skipped?"skip":(x.applied?"done":"would")}: ${x.name} — ${x.note}`));
+    logLine(`  ${dry?"would relocate":"relocated"} ${r.count} torrent(s).`);
+    toast(dry?"Preview complete":`Relocated ${r.count}`);
+  }catch(e){ toast(e.message,true); logLine("[relocate] ERROR: "+e.message); } finally{ btn.disabled=false; }
+}
+$("#relPreview").onclick = ()=>runRelocate(true);
+$("#relRun").onclick = ()=>{ if(confirm("Relocate completed torrents in destination categories to their library paths now?")) runRelocate(false); };
 $("#saveSettings").onclick = async ()=>{
   const body={ dry_run:$("#setDry").checked, poll_enabled:$("#setPoll").checked, poll_interval_minutes:parseFloat($("#setInterval").value) };
   try{ await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
