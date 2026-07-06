@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from . import audiobooks as ab_mod
 from . import automations as auto_mod
 from . import config_store
+from . import naming
 from . import relocator
 from .client import QbitClient
 from .config import (AUTOMATION_ACTIONS, VALID_STATES, Config, ConfigError,
@@ -99,6 +100,13 @@ class RelocationBody(BaseModel):
     qbit_download_root: str | None = None
     local_download_root: str | None = None
     destinations: list[dict] | None = None
+
+
+class NamePreviewBody(BaseModel):
+    folder_template: str = ""
+    file_template: str = ""
+    sample: str = ""
+    category: str = ""
 
 
 class _State:
@@ -352,6 +360,21 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
             raise _err(exc)
         changed = [r for r in results if not r.get("skipped")]
         return {"dry_run": body.dry_run, "count": len(changed), "results": results}
+
+    @app.post("/api/relocate/preview-name")
+    def preview_name(body: NamePreviewBody) -> dict[str, Any]:
+        """Render the naming template against a sample name — for the live UI
+        preview. Pure/offline; no qBittorrent connection needed."""
+        sample = body.sample or "The.Martian.2015.1080p.BluRay.x265-RARBG"
+        tokens = naming.parse(sample, body.category)
+        posix = lambda p: p.replace(os.sep, "/")
+        return {
+            "tokens": tokens,
+            "file": posix(naming.destination_subpath(
+                body.folder_template, body.file_template, tokens, True, ".mkv", sample + ".mkv")),
+            "folder": posix(naming.destination_subpath(
+                body.folder_template, body.file_template, tokens, False, "", sample)),
+        }
 
     @app.post("/api/automations/run")
     def automations_run(body: RunBody) -> dict[str, Any]:

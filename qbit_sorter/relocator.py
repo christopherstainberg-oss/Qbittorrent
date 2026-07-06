@@ -17,6 +17,7 @@ import logging
 import os
 import shutil
 
+from . import naming
 from .client import QbitClient
 from .config import Config
 
@@ -75,7 +76,7 @@ def build_plans(cfg: Config, client: QbitClient) -> list[dict]:
         for t in client.completed_in_category(dest.category):
             content = (t.get("content_path", "") or "").rstrip("/")
             src = local_source(content, rc.qbit_download_root, rc.local_download_root)
-            target = os.path.join(dest.path, os.path.basename(content)) if content else ""
+            target = _target_path(dest, t.get("name", ""), content, src)
             plans.append({
                 "hash": t.get("hash", ""),
                 "name": t.get("name", ""),
@@ -86,6 +87,25 @@ def build_plans(cfg: Config, client: QbitClient) -> list[dict]:
                 "dst": target,
             })
     return plans
+
+
+def _target_path(dest, torrent_name: str, content_path: str, src: str) -> str:
+    """Full destination path, applying the naming template when one is set."""
+    if not content_path:
+        return ""
+    basename = os.path.basename(content_path)
+    if not (dest.folder_template or dest.file_template):
+        return os.path.join(dest.path, basename)  # no template: keep original name
+    # file vs folder: prefer the real filesystem; fall back to the extension.
+    if os.path.exists(src):
+        is_file = os.path.isfile(src)
+    else:
+        is_file = bool(os.path.splitext(content_path)[1])
+    ext = os.path.splitext(basename)[1] if is_file else ""
+    tokens = naming.parse(torrent_name, dest.category)
+    sub = naming.destination_subpath(dest.folder_template, dest.file_template,
+                                     tokens, is_file, ext, basename)
+    return os.path.join(dest.path, sub)
 
 
 def run(cfg: Config, client: QbitClient, dry_run: bool = True) -> list[dict]:

@@ -136,6 +136,11 @@ poll:
 # mode: hardlink (default; instant, no extra space, keeps seeding — needs the
 #       same filesystem), copy (keeps seeding, uses space), or move (frees
 #       space but qBittorrent stops seeding that torrent).
+#
+# OPTIONAL naming (Sonarr/Radarr-style): folder_template / file_template rename
+# the library copy using {token}s parsed from the torrent name — {title} {year}
+# {quality} {source} {codec} {season} {episode} {group} {category} {name} {ext}.
+# Leave blank to keep the original name. See NAMING.md.
 relocation:
   enabled: false
   qbit_download_root: "/Torrents"
@@ -144,6 +149,13 @@ relocation:
     - category: "Audiobooks"
       path: "/library/Audiobooks"   # this container's mount of the library
       mode: "hardlink"
+      folder_template: "{title}"
+      file_template: "{title}"
+    # - category: "Movies"
+    #   path: "/library/Movies"
+    #   mode: "hardlink"
+    #   folder_template: "{title} ({year})"
+    #   file_template: "{title} ({year}) [{quality}]"
 
 # --- Automations (trigger -> action) ---------------------------------------
 # User-defined "if this, then that" rules. Conditions match like `rules` above

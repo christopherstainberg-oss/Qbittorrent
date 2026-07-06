@@ -109,11 +109,16 @@ class PollConfig:
 @dataclass
 class Destination:
     """A category whose completed torrents get relocated to an external library
-    path (outside qBittorrent's download folder), Sonarr/Radarr-style."""
+    path (outside qBittorrent's download folder), Sonarr/Radarr-style.
+
+    Optional naming templates ({token} placeholders) rename the library copy,
+    like *arr's rename-on-import. Empty templates keep the original name."""
 
     category: str
-    path: str                 # where THIS app writes (its mount of the library)
-    mode: str = "hardlink"    # hardlink | copy | move
+    path: str                    # where THIS app writes (its mount of the library)
+    mode: str = "hardlink"       # hardlink | copy | move
+    folder_template: str = ""    # e.g. "{title} ({year})"
+    file_template: str = ""      # e.g. "{title} ({year}) [{quality}]"
 
 
 @dataclass
@@ -462,7 +467,10 @@ def _parse_relocation(raw: dict) -> RelocationConfig:
             raise ConfigError(
                 f"relocation.destinations[{i}].mode must be one of "
                 f"{', '.join(sorted(_RELOCATION_MODES))}")
-        dests.append(Destination(category=str(category), path=str(path), mode=mode))
+        dests.append(Destination(
+            category=str(category), path=str(path), mode=mode,
+            folder_template=str(d.get("folder_template", "") or ""),
+            file_template=str(d.get("file_template", "") or "")))
     return RelocationConfig(
         enabled=_env_bool("RELOCATION_ENABLED", bool(raw.get("enabled", False))),
         qbit_download_root=os.getenv("QBIT_DOWNLOAD_ROOT",
@@ -480,7 +488,8 @@ def relocation_to_dict(rc: RelocationConfig) -> dict:
         "qbit_download_root": rc.qbit_download_root,
         "local_download_root": rc.local_download_root,
         "destinations": [
-            {"category": d.category, "path": d.path, "mode": d.mode}
+            {"category": d.category, "path": d.path, "mode": d.mode,
+             "folder_template": d.folder_template, "file_template": d.file_template}
             for d in rc.destinations
         ],
     }

@@ -116,8 +116,12 @@ def save_relocation(path: str | Path, cfg: dict) -> None:
                 raise ConfigError(
                     f"destination '{category}' has invalid mode '{mode}' "
                     "(use hardlink, copy or move)")
-            cleaned_dests.append({"category": str(category), "path": str(dpath),
-                                  "mode": mode})
+            entry = {"category": str(category), "path": str(dpath), "mode": mode}
+            if d.get("folder_template"):
+                entry["folder_template"] = str(d["folder_template"])
+            if d.get("file_template"):
+                entry["file_template"] = str(d["file_template"])
+            cleaned_dests.append(entry)
 
     path = Path(path)
     data = _load(path)

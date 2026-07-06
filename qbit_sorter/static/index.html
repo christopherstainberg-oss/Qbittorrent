@@ -280,11 +280,12 @@
           <input type="text" id="relLocalRoot" placeholder="/downloads"></div>
       </div>
       <h2>Destinations</h2>
-      <table>
-        <thead><tr><th style="width:200px">Category</th><th>Destination path (this app's mount)</th>
-          <th style="width:150px">Mode</th><th style="width:70px"></th></tr></thead>
-        <tbody id="relRows"></tbody>
-      </table>
+      <p class="hint">Optional <b>naming templates</b> rename the library copy Sonarr/Radarr-style
+        (the seeding copy is untouched). Tokens: <code>{title}</code> <code>{year}</code>
+        <code>{quality}</code> <code>{source}</code> <code>{codec}</code> <code>{season}</code>
+        <code>{episode}</code> <code>{group}</code> <code>{category}</code> <code>{name}</code>
+        <code>{ext}</code>. Leave blank to keep the original name.</p>
+      <div id="relRows"></div>
       <div class="row-actions">
         <button id="relAdd" class="sm">+ Add destination</button>
         <span style="flex:1"></span>
@@ -859,35 +860,64 @@ async function loadAutomation(){
   $("#relEnabled").checked = !!rel.enabled;
   $("#relQbitRoot").value = rel.qbit_download_root || "";
   $("#relLocalRoot").value = rel.local_download_root || "";
-  REL_DESTS = (rel.destinations||[]).map(d=>({category:d.category, path:d.path, mode:d.mode||"hardlink"}));
+  REL_DESTS = (rel.destinations||[]).map(d=>({category:d.category, path:d.path, mode:d.mode||"hardlink",
+    folder_template:d.folder_template||"", file_template:d.file_template||"", sample:""}));
   renderRelRows();
 }
 /* ---------- library relocation ---------- */
-let REL_DESTS = [];   // [{category, path, mode}]
+let REL_DESTS = [];   // [{category, path, mode, folder_template, file_template, sample}]
 function relModeOptions(sel){
   return ["hardlink","copy","move"].map(m=>`<option value="${m}"${m===sel?" selected":""}>${m}</option>`).join("");
 }
 function renderRelRows(){
   $("#relRows").innerHTML = REL_DESTS.length ? REL_DESTS.map((d,i)=>`
-    <tr data-i="${i}">
-      <td><input type="text" class="reld" data-f="category" value="${esc(d.category)}" list="catList" placeholder="category" style="width:100%"></td>
-      <td><input type="text" class="reld" data-f="path" value="${esc(d.path)}" placeholder="/library/…" style="width:100%"></td>
-      <td><select class="reld" data-f="mode">${relModeOptions(d.mode)}</select></td>
-      <td><button class="sm danger relDel">✕</button></td>
-    </tr>`).join("")
-    : '<tr><td colspan="4" class="muted">No destinations. Add one.</td></tr>';
-  // datalist of known categories for convenience
+    <div class="card" data-i="${i}" style="padding:12px 14px;margin-bottom:10px">
+      <div class="bar" style="margin-bottom:8px">
+        <input type="text" data-f="category" value="${esc(d.category)}" list="catList" placeholder="category" style="width:170px">
+        <input type="text" data-f="path" value="${esc(d.path)}" placeholder="/data/…" style="flex:1;min-width:200px">
+        <select data-f="mode">${relModeOptions(d.mode)}</select>
+        <button class="sm danger relDel" title="remove destination">✕</button>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field"><label>Folder template (optional)</label><input type="text" data-f="folder_template" value="${esc(d.folder_template)}" placeholder="{title} ({year})"></div>
+        <div class="field"><label>File template (optional)</label><input type="text" data-f="file_template" value="${esc(d.file_template)}" placeholder="{title} ({year}) [{quality}]"></div>
+      </div>
+      <div class="bar" style="margin:8px 0 4px"><span class="muted" style="font-size:12px">Preview from name:</span>
+        <input type="text" data-f="sample" value="${esc(d.sample)}" placeholder="The.Martian.2015.1080p.BluRay.x265-RARBG" style="flex:1;min-width:220px"></div>
+      <div class="relPreview" style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--accent2)">—</div>
+    </div>`).join("")
+    : '<p class="muted">No destinations. Add one.</p>';
   if(!$("#catList")){ const dl=document.createElement("datalist"); dl.id="catList"; document.body.appendChild(dl); }
   $("#catList").innerHTML = CATEGORIES.map(c=>`<option value="${esc(c.name)}">`).join("");
+  REL_DESTS.forEach((_,i)=>updateRelPreview(i));
 }
 function collectRelDests(){
-  return $$("#relRows tr[data-i]").map(tr=>{
-    const g=(f)=>tr.querySelector(`[data-f="${f}"]`)?.value.trim()||"";
-    return {category:g("category"), path:g("path"), mode:g("mode")||"hardlink"};
-  }).filter(d=>d.category && d.path);
+  return $$("#relRows .card[data-i]").map(card=>{
+    const g=(f)=>card.querySelector(`[data-f="${f}"]`)?.value.trim()||"";
+    return {category:g("category"), path:g("path"), mode:g("mode")||"hardlink",
+      folder_template:g("folder_template"), file_template:g("file_template"), sample:g("sample")};
+  });
 }
-$("#relAdd").onclick = ()=>{ REL_DESTS=collectRelDests(); REL_DESTS.push({category:"",path:"",mode:"hardlink"}); renderRelRows(); };
-$("#relRows").onclick = (e)=>{ if(e.target.classList.contains("relDel")){ const i=+e.target.closest("tr").dataset.i; REL_DESTS=collectRelDests(); REL_DESTS.splice(i,1); renderRelRows(); } };
+let relPrevTimer=null;
+async function updateRelPreview(i){
+  const card=$(`#relRows .card[data-i="${i}"]`); if(!card) return;
+  const g=(f)=>card.querySelector(`[data-f="${f}"]`)?.value.trim()||"";
+  const out=card.querySelector(".relPreview");
+  if(!g("folder_template") && !g("file_template")){ out.textContent="(no template — keeps original name)"; out.style.color="var(--muted)"; return; }
+  try{
+    const r=await api("/api/relocate/preview-name",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({folder_template:g("folder_template"),file_template:g("file_template"),sample:g("sample"),category:g("category")})});
+    out.textContent="→ "+r.file; out.style.color="var(--accent2)";
+  }catch(e){ out.textContent="preview error: "+e.message; out.style.color="var(--danger)"; }
+}
+$("#relAdd").onclick = ()=>{ REL_DESTS=collectRelDests(); REL_DESTS.push({category:"",path:"",mode:"hardlink",folder_template:"",file_template:"",sample:""}); renderRelRows(); };
+$("#relRows").addEventListener("input",(e)=>{
+  if(["folder_template","file_template","sample","category"].includes(e.target.dataset.f)){
+    const i=+e.target.closest(".card").dataset.i;
+    clearTimeout(relPrevTimer); relPrevTimer=setTimeout(()=>updateRelPreview(i),350);
+  }
+});
+$("#relRows").onclick = (e)=>{ if(e.target.classList.contains("relDel")){ const i=+e.target.closest(".card").dataset.i; REL_DESTS=collectRelDests(); REL_DESTS.splice(i,1); renderRelRows(); } };
 async function relSave(){
   const body={ enabled:$("#relEnabled").checked, qbit_download_root:$("#relQbitRoot").value.trim(),
     local_download_root:$("#relLocalRoot").value.trim(), destinations:collectRelDests() };
