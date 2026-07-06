@@ -21,14 +21,14 @@ _SEP = re.compile(r"[._]+")
 _YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 _QUALITY = re.compile(r"\b(2160p|1080p|720p|480p|4k)\b", re.I)
 _SOURCE = re.compile(
-    r"\b(remux|blu-?ray|bd-?rip|br-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|hd-?rip)\b", re.I)
-_CODEC = re.compile(r"\b(x265|x264|h\.?265|h\.?264|hevc|avc|av1|xvid)\b", re.I)
+    r"\b(remux|blu-?ray|bd-?rip|br-?rip|web-?dl|web-?rip|webrip|hdtv|dvd-?rip|hd-?rip|web)\b", re.I)
+_CODEC = re.compile(r"\b(x26[45]|h[\s.]?26[45]|hevc|avc|av1|xvid)\b", re.I)
 _SXXEXX = re.compile(r"\bS(\d{1,2})E(\d{1,2})\b", re.I)
 _GROUP = re.compile(r"-([A-Za-z0-9]+)$")
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _TOKEN = re.compile(r"\{(\w+)\}")
 
-TOKENS = ("title", "year", "quality", "source", "codec", "group",
+TOKENS = ("title", "author", "year", "quality", "source", "codec", "group",
           "season", "episode", "category", "name", "ext")
 
 
@@ -43,28 +43,32 @@ def parse(name: str, category: str = "") -> dict:
     y = _YEAR.search(stem)
     se = _SXXEXX.search(stem)
 
-    # Title = everything before the first release marker. Only treat a year as a
-    # marker when the name actually looks like a release (has quality/source/
-    # codec/episode); otherwise a stray year in an audiobook title like
-    # "Brazil (2012 AudioGO Ltd UK) - Michael Palin" would wrongly truncate it.
+    # A name "looks like a release" when it carries quality/source/codec/episode
+    # tags. For those, the title ends at the first marker (year included). For
+    # everything else — audiobook-style "Title - Author" — a stray year must not
+    # truncate the title, and the part after the last " - " is the author.
     looks_like_release = bool(q or s or c or se)
+    author = ""
     if looks_like_release:
         markers = [m.start() for m in (y, q, s, c, se) if m]
         cut = min(markers) if markers else len(stem)
+        title = _SEP.sub(" ", stem[:cut]).strip(" -")
+    elif " - " in stem:
+        head, author = stem.rsplit(" - ", 1)
+        title = _SEP.sub(" ", head).strip(" -")
+        author = author.strip()
     else:
-        cut = len(stem)
-    title = _SEP.sub(" ", stem[:cut]).strip(" -")
+        title = _SEP.sub(" ", stem).strip(" -")
 
-    def norm_q(v):  # normalize "4k" -> "2160p"
-        return "2160p" if v and v.lower() == "4k" else (v or "")
-
+    full = _SEP.sub(" ", stem).strip()
     return {
-        "name": _SEP.sub(" ", stem).strip(),
-        "title": title or _SEP.sub(" ", stem).strip(),
+        "name": full,
+        "title": title or full,
+        "author": author,
         "year": y.group(1) if y else "",
-        "quality": norm_q(q.group(1) if q else ""),
+        "quality": "2160p" if (q and q.group(1).lower() == "4k") else (q.group(1) if q else ""),
         "source": (s.group(1) if s else ""),
-        "codec": (c.group(1) if c else ""),
+        "codec": re.sub(r"[\s.]", "", c.group(1)) if c else "",
         "group": g.group(1) if g else "",
         "season": se.group(1).zfill(2) if se else "",
         "episode": se.group(2).zfill(2) if se else "",
@@ -84,12 +88,18 @@ def _sanitize(value: str) -> str:
 def render(template: str, tokens: dict) -> str:
     """Fill a template and clean up gaps left by empty tokens."""
     out = _TOKEN.sub(lambda m: _sanitize(tokens.get(m.group(1), "")), template)
-    out = re.sub(r"\(\s*\)", "", out)          # empty ()
-    out = re.sub(r"\[\s*\]", "", out)          # empty []
+    out = re.sub(r"\s{2,}", " ", out)          # collapse runs left by empty tokens
+    out = re.sub(r"\(\s+", "(", out)           # trim spaces just inside ( )
+    out = re.sub(r"\s+\)", ")", out)
+    out = re.sub(r"\[\s+", "[", out)           # ...and inside [ ]
+    out = re.sub(r"\s+\]", "]", out)
+    out = re.sub(r"\(\s*\)", "", out)          # drop now-empty ()
+    out = re.sub(r"\[\s*\]", "", out)          # ...and []
     out = re.sub(r"\s*-\s*$", "", out)         # trailing " - "
-    out = re.sub(r"\s{2,}", " ", out)          # collapse spaces
+    out = re.sub(r"\s{2,}", " ", out)          # collapse again after removals
     out = re.sub(r"\s*([/\\])\s*", r"\1", out)  # tidy around path separators
-    return out.strip(" .-")
+    out = re.sub(r"[/\\]{2,}", "/", out)        # collapse empty path segments
+    return out.strip(" .-/\\")                  # never leading/trailing separators
 
 
 def destination_subpath(folder_template: str, file_template: str,

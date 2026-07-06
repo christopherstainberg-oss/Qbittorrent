@@ -36,7 +36,8 @@ Parsed from the torrent name:
 
 | Token | Example | Notes |
 |-------|---------|-------|
-| `{title}` | `The Martian` | Name up to the first release tag, separators cleaned |
+| `{title}` | `The Martian` | Release name up to the first tag; for `Title - Author` names, the part before the last ` - ` |
+| `{author}` | `Andy Weir` | Audiobook-style names only: the part after the last ` - ` |
 | `{year}` | `2015` | First 19xx/20xx found |
 | `{quality}` | `1080p` | 2160p / 1080p / 720p / 480p (4k → 2160p) |
 | `{source}` | `BluRay` | BluRay / WEB-DL / WEBRip / HDTV / Remux / … |
@@ -58,23 +59,24 @@ cleaned up — so a movie with no year still renders tidily.
 **Movies**
 ```
 Folder:  {title} ({year})
-File:    {title} ({year}) [{quality}]
+File:    {title} ({year}) [{quality} {source} {codec}]
 ```
-→ `The Martian (2015)/The Martian (2015) [1080p].mkv`
+→ `The Martian (2015)/The Martian (2015) [1080p BluRay x265].mkv`
 
 **TV**
 ```
 Folder:  {title}/Season {season}
-File:    {title} - S{season}E{episode} [{quality}]
+File:    {title} - S{season}E{episode} [{quality} {source} {codec}]
 ```
-→ `Breaking Bad/Season 05/Breaking Bad - S05E14 [1080p].mkv`
+→ `Breaking Bad/Season 05/Breaking Bad - S05E14 [1080p WEB-DL x264].mkv`
 
-**Audiobooks** (name like `Title - Author`)
+**Audiobooks** (name like `Title - Author`) — Author/Title layout
 ```
-Folder:  {title}
+Folder:  {author}/{title}
 File:    {title}
 ```
-→ `Sapiens - Yuval Noah Harari/Sapiens - Yuval Noah Harari.m4b`
+→ `Kristan Higgins/Always the Last to Know/Always the Last to Know.m4b`
+(names with no ` - ` fall back to just the title folder)
 
 ---
 

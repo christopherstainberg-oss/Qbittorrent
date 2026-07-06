@@ -147,15 +147,20 @@ relocation:
   local_download_root: "/downloads"
   destinations:
     - category: "Audiobooks"
-      path: "/library/Audiobooks"   # this container's mount of the library
+      path: "/data/Audiobooks"      # this container's mount of the library
       mode: "hardlink"
-      folder_template: "{title}"
+      folder_template: "{author}/{title}"          # -> Author/Title/Title.ext
       file_template: "{title}"
-    # - category: "Movies"
-    #   path: "/library/Movies"
+    # - category: "Movies - Radarr"
+    #   path: "/data/Movies"
     #   mode: "hardlink"
     #   folder_template: "{title} ({year})"
-    #   file_template: "{title} ({year}) [{quality}]"
+    #   file_template: "{title} ({year}) [{quality} {source} {codec}]"
+    # - category: "TV-Sonarr"
+    #   path: "/data/TV"
+    #   mode: "hardlink"
+    #   folder_template: "{title}/Season {season}"
+    #   file_template: "{title} - S{season}E{episode} [{quality} {source} {codec}]"
 
 # --- Automations (trigger -> action) ---------------------------------------
 # User-defined "if this, then that" rules. Conditions match like `rules` above
