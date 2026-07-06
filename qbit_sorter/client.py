@@ -72,6 +72,19 @@ class QbitClient:
     def set_category(self, category: str, hashes: list[str]) -> None:
         self._client.torrents_set_category(category=category, torrent_hashes=hashes)
 
+    def relocate(self, save_path: str, hashes: list[str]) -> None:
+        """Physically move torrents into `save_path`, then keep them under
+        Automatic Torrent Management.
+
+        Unlike enabling AutoTMM on its own — which qBittorrent accepts even when
+        the destination is unwritable and then fails the move *silently* — this
+        issues an explicit Set Location, so qBittorrent raises HTTP 409
+        ("Cannot make save path") when it can't write there. That lets callers
+        report a failed relocation instead of falsely claiming success. Once the
+        data is in place we re-enable AutoTMM so the torrent stays managed."""
+        self._client.torrents_set_location(location=save_path, torrent_hashes=hashes)
+        self._client.torrents_set_auto_management(enable=True, torrent_hashes=hashes)
+
     # ---- Download-queue priority -------------------------------------------
     # These reorder torrents in qBittorrent's download/seed queue. They only
     # have an effect when Torrent Queueing is enabled; with it off qBittorrent

@@ -318,14 +318,20 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
             client.set_category(body.category, body.hashes)
             # Only relocate when the category has a real save path (see sorter).
             relocate = state.cfg.enable_autotmm and bool(save_path)
+            relocate_error = None
             if relocate:
-                client.enable_autotmm(body.hashes)
+                try:
+                    client.relocate(save_path, body.hashes)
+                except Exception as exc:  # noqa: BLE001 — bad/unwritable save path
+                    # The category change stuck; be honest that the move did not.
+                    relocate = False
+                    relocate_error = str(exc)
         except HTTPException:
             raise
         except Exception as exc:  # noqa: BLE001
             raise _err(exc)
         return {"ok": True, "category": body.category, "count": len(body.hashes),
-                "relocated": relocate}
+                "relocated": relocate, "relocate_error": relocate_error}
 
     # ---- Editing: rules / settings / arr / category placement --------------
 

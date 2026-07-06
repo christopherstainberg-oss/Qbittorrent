@@ -139,9 +139,16 @@ def apply_plan(cfg: Config, client: QbitClient, plans: list[Plan]) -> list[dict]
         if not cfg.dry_run:
             client.set_category(category, hashes)
             if relocate:
-                # Turning on Automatic Torrent Management makes qBittorrent
-                # relocate the data into the category's configured save path.
-                client.enable_autotmm(hashes)
+                # Physically move the data into the category's save path. Using
+                # an explicit Set Location (not a bare AutoTMM enable) means an
+                # unwritable save path surfaces as an error instead of failing
+                # silently — so we report the move honestly.
+                try:
+                    client.relocate(usable[category], hashes)
+                except Exception as exc:  # noqa: BLE001
+                    relocate = False
+                    note = f"relocation failed — {exc}"
+                    log.warning("Relocation to '%s' failed: %s", usable[category], exc)
         for p in group:
             results.append({
                 "name": p.torrent.name, "hash": p.torrent.hash,
