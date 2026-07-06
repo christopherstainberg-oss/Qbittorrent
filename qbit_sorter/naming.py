@@ -43,9 +43,16 @@ def parse(name: str, category: str = "") -> dict:
     y = _YEAR.search(stem)
     se = _SXXEXX.search(stem)
 
-    # Title = everything before the first release marker, separators normalized.
-    markers = [m.start() for m in (y, q, s, c, se) if m]
-    cut = min(markers) if markers else len(stem)
+    # Title = everything before the first release marker. Only treat a year as a
+    # marker when the name actually looks like a release (has quality/source/
+    # codec/episode); otherwise a stray year in an audiobook title like
+    # "Brazil (2012 AudioGO Ltd UK) - Michael Palin" would wrongly truncate it.
+    looks_like_release = bool(q or s or c or se)
+    if looks_like_release:
+        markers = [m.start() for m in (y, q, s, c, se) if m]
+        cut = min(markers) if markers else len(stem)
+    else:
+        cut = len(stem)
     title = _SEP.sub(" ", stem[:cut]).strip(" -")
 
     def norm_q(v):  # normalize "4k" -> "2160p"
