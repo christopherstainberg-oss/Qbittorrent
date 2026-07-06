@@ -12,6 +12,7 @@ from typing import Any
 
 from . import arr as arr_mod
 from . import audiobooks as ab_mod
+from . import automations as auto_mod
 from . import relocator
 from . import sorter
 from .client import QbitClient
@@ -26,6 +27,12 @@ def run_pipeline(cfg: Config, client: QbitClient,
     summary: dict[str, Any] = {"dry_run": cfg.dry_run}
 
     summary["sorted"] = sorter.run(cfg, client)
+
+    # User-defined trigger -> action automations (idempotent).
+    if any(a.enabled for a in cfg.automations):
+        summary["automations"] = auto_mod.run(cfg, client, dry_run=cfg.dry_run)
+    else:
+        summary["automations"] = []
 
     if cfg.audiobooks.enabled:
         summary["audiobooks"] = ab_mod.organize(cfg, client)
@@ -44,7 +51,8 @@ def run_pipeline(cfg: Config, client: QbitClient,
 
     changed = sum(1 for r in summary["sorted"] if not r.get("skipped")) \
         + sum(1 for r in summary["audiobooks"] if not r.get("skipped")) \
-        + sum(1 for r in summary["relocated"] if not r.get("skipped"))
+        + sum(1 for r in summary["relocated"] if not r.get("skipped")) \
+        + sum(r.get("applied", 0) for r in summary["automations"])
     triggered = sum(1 for r in summary["arr"] if r.get("triggered"))
     log.info("Pipeline done: %d torrent change(s), %d *arr trigger(s)%s.",
              changed, triggered, " [dry-run]" if cfg.dry_run else "")

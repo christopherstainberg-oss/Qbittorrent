@@ -99,6 +99,7 @@
   <div class="tabs">
     <div class="tab active" data-tab="torrents">Torrents</div>
     <div class="tab" data-tab="rules">Rules</div>
+    <div class="tab" data-tab="actions">Automations</div>
     <div class="tab" data-tab="categories">Categories &amp; Placement</div>
     <div class="tab" data-tab="automation">Automation</div>
   </div>
@@ -179,6 +180,23 @@
       <button id="reloadRules">Revert</button>
     </div>
     <div id="ruleList"></div>
+  </section>
+
+  <!-- ============ AUTOMATIONS (trigger -> action) ============ -->
+  <section class="view" id="view-actions">
+    <p class="hint">Trigger → action automations: when a torrent matches the conditions, run the
+      chosen action. Conditions work like Rules (a torrent matches when <b>all</b> the ones you set
+      pass). These run automatically in the pipeline (poll / completion webhook) and on demand below.
+      “Only completed torrents” limits an automation to fully-downloaded ones.</p>
+    <div class="bar">
+      <button id="addAuto" class="primary">+ Add automation</button>
+      <button id="saveAutos" class="go">Save</button>
+      <button id="reloadAutos">Revert</button>
+      <span style="flex:1"></span>
+      <button id="previewAutos" class="primary">Preview</button>
+      <button id="runAutos" class="go">Run now ▶</button>
+    </div>
+    <div id="autoList"></div>
   </section>
 
   <!-- ============ CATEGORIES ============ -->
@@ -674,6 +692,93 @@ $("#saveRules").onclick = async ()=>{
   }catch(e){ toast(e.message,true); logLine("[rules] ERROR: "+e.message); }
 };
 
+/* ---------- automations (trigger -> action) ---------- */
+let AUTOS = [];
+const ACTION_LABELS = {set_category:"Set category", file_priority:"File priority",
+  queue_priority:"Queue priority", add_tag:"Add tag", set_location:"Set location"};
+function paramControl(action, params){
+  params = params||{};
+  if(action==="set_category") return `<select data-p="category">${catOptions(params.category||"")}</select>`;
+  if(action==="file_priority"){ const v=params.priority;
+    return `<select data-p="priority">${[[1,"Normal"],[6,"High"],[7,"Maximum"],[0,"Do not download"]]
+      .map(([n,t])=>`<option value="${n}"${n===v?" selected":""}>${t}</option>`).join("")}</select>`; }
+  if(action==="queue_priority"){ const v=params.direction;
+    return `<select data-p="direction">${["top","up","down","bottom"]
+      .map(d=>`<option value="${d}"${d===v?" selected":""}>${d}</option>`).join("")}</select>`; }
+  if(action==="add_tag") return `<input type="text" data-p="tag" value="${esc(params.tag||"")}" placeholder="tag name">`;
+  if(action==="set_location") return `<input type="text" data-p="path" value="${esc(params.path||"")}" placeholder="/path/on/disk">`;
+  return "";
+}
+function autoCard(a, idx){
+  const act=a.action||"set_category";
+  return `<div class="card" data-idx="${idx}">
+    <div class="grid">
+      <div class="field"><label>Name</label><input type="text" data-f="name" value="${esc(a.name||"")}"></div>
+      <div class="field"><label class="switch"><input type="checkbox" data-f="enabled" ${a.enabled!==false?"checked":""}> Enabled</label></div>
+      <div class="field"><label>Action (when matched, do…)</label><select data-f="action">${Object.keys(ACTION_LABELS).map(k=>`<option value="${k}"${k===act?" selected":""}>${ACTION_LABELS[k]}</option>`).join("")}</select></div>
+      <div class="field autoparam"><label>Action value</label>${paramControl(act, a.params)}</div>
+      <div class="field"><label class="switch"><input type="checkbox" data-f="complete_only" ${a.complete_only!==false?"checked":""}> Only completed torrents</label></div>
+      <div class="field"><label>Name regex</label><input type="text" data-f="name_regex" value="${esc(a.name_regex||"")}" placeholder="e.g. s\\d+e\\d+"></div>
+      <div class="field"><label>Name contains (any)</label><input type="text" data-f="name_contains" value="${esc(listVal(a.name_contains))}" placeholder="1080p, x265"></div>
+      <div class="field"><label>Tracker contains</label><input type="text" data-f="tracker_contains" value="${esc(listVal(a.tracker_contains))}"></div>
+      <div class="field"><label>Save path contains</label><input type="text" data-f="save_path_contains" value="${esc(listVal(a.save_path_contains))}"></div>
+      <div class="field"><label>Only if category is</label><input type="text" data-f="category_is" value="${esc(listVal(a.category_is))}" placeholder='empty = "" for uncategorized'></div>
+      <div class="field"><label>Min size (GB)</label><input type="number" step="0.1" data-f="min_size_gb" value="${a.min_size_gb??""}"></div>
+      <div class="field"><label>Max size (GB)</label><input type="number" step="0.1" data-f="max_size_gb" value="${a.max_size_gb??""}"></div>
+    </div>
+    <div class="row-actions"><button class="sm danger delAuto">Delete</button><span class="muted">automation #${idx+1}</span></div>
+  </div>`;
+}
+function renderAutos(){ $("#autoList").innerHTML = AUTOS.map(autoCard).join("") || '<p class="muted">No automations. Add one.</p>'; }
+function collectAutos(){
+  return $$("#autoList .card").map(card=>{
+    const g=(f)=>{ const el=card.querySelector(`[data-f="${f}"]`); return el?(el.type==="checkbox"?el.checked:el.value.trim()):""; };
+    const action=g("action")||"set_category";
+    const pEl=card.querySelector("[data-p]"); const params={};
+    if(pEl){ let v=pEl.value; if(pEl.dataset.p==="priority") v=parseInt(v,10); params[pEl.dataset.p]=v; }
+    const out={name:g("name")||"automation", enabled:g("enabled"), action, params, complete_only:g("complete_only")};
+    if(g("name_regex")) out.name_regex=g("name_regex");
+    if(g("name_contains")) out.name_contains=parseList(g("name_contains"));
+    if(g("tracker_contains")) out.tracker_contains=parseList(g("tracker_contains"));
+    if(g("save_path_contains")) out.save_path_contains=parseList(g("save_path_contains"));
+    if(g("category_is")) out.category_is=parseList(g("category_is"));
+    if(g("min_size_gb")) out.min_size_gb=parseFloat(g("min_size_gb"));
+    if(g("max_size_gb")) out.max_size_gb=parseFloat(g("max_size_gb"));
+    return out;
+  });
+}
+async function loadAutos(){ const c=await api("/api/config"); AUTOS=c.automations||[]; renderAutos(); }
+$("#addAuto").onclick = ()=>{ AUTOS=collectAutos(); AUTOS.push({name:"New automation",enabled:true,action:"set_category",params:{},complete_only:true}); renderAutos(); };
+$("#reloadAutos").onclick = ()=>loadAutos().then(()=>toast("Reverted to saved"));
+// Re-render a card's action-value control when its action changes.
+$("#autoList").addEventListener("change",(e)=>{
+  if(e.target.matches('[data-f="action"]')){
+    const idx=+e.target.closest(".card").dataset.idx;
+    AUTOS=collectAutos(); AUTOS[idx].action=e.target.value; AUTOS[idx].params={}; renderAutos();
+  }
+});
+$("#autoList").onclick = (e)=>{ if(e.target.classList.contains("delAuto")){ const idx=+e.target.closest(".card").dataset.idx; AUTOS=collectAutos(); AUTOS.splice(idx,1); renderAutos(); } };
+async function saveAutos(){
+  const automations=collectAutos();
+  const r=await api("/api/automations",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({automations})});
+  AUTOS=r.automations; renderAutos(); return r;
+}
+$("#saveAutos").onclick = async ()=>{ try{ await saveAutos(); toast("Automations saved"); logLine(`[automations] saved ${AUTOS.length}`);}catch(e){ toast(e.message,true); logLine("[automations] ERROR: "+e.message);} };
+async function runAutos(dry){
+  const btn=dry?$("#previewAutos"):$("#runAutos"); btn.disabled=true;
+  try{
+    await saveAutos();  // persist edits first
+    logLine((dry?"[auto preview] ":"[auto run] ")+"evaluating automations…");
+    const r=await api("/api/automations/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dry_run:dry})});
+    r.results.forEach(x=>logLine(`  ${x.name}: matched ${x.matched} — ${x.note}`));
+    logLine(`  ${dry?"would apply":"applied"} ${r.applied} action(s).`);
+    toast(dry?"Preview complete":`Applied ${r.applied}`);
+    if(!dry) await loadTorrents();
+  }catch(e){ toast(e.message,true); logLine("[automations] ERROR: "+e.message);} finally{ btn.disabled=false; }
+}
+$("#previewAutos").onclick = ()=>runAutos(true);
+$("#runAutos").onclick = ()=>{ if(confirm("Run all enabled automations now?")) runAutos(false); };
+
 /* ---------- categories editor ---------- */
 $("#saveDefaultPath").onclick = async ()=>{
   const save_path=$("#defaultSavePath").value.trim();
@@ -809,6 +914,7 @@ $("#saveApiBase").onclick = ()=>{
 /* ---------- lazy-load tab data ---------- */
 $$('.tab').forEach(t=>t.addEventListener("click",()=>{
   if(t.dataset.tab==="rules") loadRules().catch(e=>toast(e.message,true));
+  if(t.dataset.tab==="actions") loadCategories().then(loadAutos).catch(e=>toast(e.message,true));
   if(t.dataset.tab==="categories") loadCategories().catch(e=>toast(e.message,true));
   if(t.dataset.tab==="automation") loadAutomation().catch(e=>toast(e.message,true));
 }));

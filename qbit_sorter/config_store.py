@@ -51,6 +51,14 @@ def save_rules(path: str | Path, rules: list[dict]) -> None:
     _dump(path, data)
 
 
+def save_automations(path: str | Path, automations: list[dict]) -> None:
+    """Persist trigger->action automations (already validated by the caller)."""
+    path = Path(path)
+    data = _load(path)
+    data["automations"] = automations
+    _dump(path, data)
+
+
 def save_settings(path: str | Path, *, dry_run: bool | None = None,
                   poll: dict | None = None) -> None:
     path = Path(path)

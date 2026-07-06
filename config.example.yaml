@@ -144,3 +144,26 @@ relocation:
     - category: "Audiobooks"
       path: "/library/Audiobooks"   # this container's mount of the library
       mode: "hardlink"
+
+# --- Automations (trigger -> action) ---------------------------------------
+# User-defined "if this, then that" rules. Conditions match like `rules` above
+# (every set condition must pass). When a torrent matches, ONE action runs:
+#   set_category   -> params: {category: "Name"}
+#   file_priority  -> params: {priority: 0|1|6|7}   (0 skip,1 normal,6 high,7 max)
+#   queue_priority -> params: {direction: top|up|down|bottom}
+#   add_tag        -> params: {tag: "Name"}
+#   set_location   -> params: {path: "/path"}
+# complete_only (default true) limits an automation to fully-downloaded torrents.
+# These run in the pipeline (poll/webhook) and on demand from the Automations tab.
+automations: []
+#  - name: "Tag Linux ISOs"
+#    enabled: true
+#    action: add_tag
+#    params: { tag: "linux" }
+#    name_contains: ["ubuntu", "debian", "fedora"]
+#  - name: "Maximize small remuxes"
+#    enabled: true
+#    action: file_priority
+#    params: { priority: 7 }
+#    name_contains: ["remux"]
+#    max_size_gb: 20

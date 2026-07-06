@@ -39,6 +39,26 @@ class Rule:
 
 
 @dataclass
+class Automation:
+    """A user-defined trigger -> action automation. The conditions mirror Rule
+    (every set condition must match, AND). When a torrent matches, `action` runs
+    with `params`. `complete_only` limits it to fully-downloaded torrents."""
+
+    name: str
+    enabled: bool = True
+    action: str = "set_category"  # set_category|file_priority|queue_priority|add_tag|set_location
+    params: dict = field(default_factory=dict)
+    complete_only: bool = True
+    name_regex: re.Pattern | None = None
+    name_contains: list[str] = field(default_factory=list)
+    tracker_contains: list[str] = field(default_factory=list)
+    save_path_contains: list[str] = field(default_factory=list)
+    category_is: list[str] | None = None
+    min_size_gb: float | None = None
+    max_size_gb: float | None = None
+
+
+@dataclass
 class QbitConfig:
     host: str
     username: str
@@ -108,6 +128,7 @@ class Config:
     qbittorrent: QbitConfig
     states: list[str]
     rules: list[Rule]
+    automations: list[Automation] = field(default_factory=list)
     dry_run: bool = True
     enable_autotmm: bool = True
     create_missing_categories: bool = False
@@ -199,6 +220,113 @@ def validate_rules(raw_rules: list) -> list[dict]:
     return cleaned
 
 
+# Automation actions and the params each requires.
+AUTOMATION_ACTIONS = {
+    "set_category": ("category",),
+    "file_priority": ("priority",),
+    "queue_priority": ("direction",),
+    "add_tag": ("tag",),
+    "set_location": ("path",),
+}
+
+
+def _validate_action(action: str, params: dict, where: str) -> dict:
+    if action not in AUTOMATION_ACTIONS:
+        raise ConfigError(
+            f"{where}.action '{action}' is invalid "
+            f"(use {', '.join(sorted(AUTOMATION_ACTIONS))})")
+    if not isinstance(params, dict):
+        raise ConfigError(f"{where}.params must be a mapping")
+    clean: dict[str, Any] = {}
+    if action == "set_category":
+        if not params.get("category"):
+            raise ConfigError(f"{where}: set_category needs params.category")
+        clean["category"] = str(params["category"])
+    elif action == "file_priority":
+        try:
+            pri = int(params.get("priority"))
+        except (TypeError, ValueError):
+            raise ConfigError(f"{where}: file_priority needs numeric params.priority")
+        if pri not in (0, 1, 6, 7):
+            raise ConfigError(f"{where}: file_priority.priority must be 0, 1, 6 or 7")
+        clean["priority"] = pri
+    elif action == "queue_priority":
+        if params.get("direction") not in ("top", "up", "down", "bottom"):
+            raise ConfigError(
+                f"{where}: queue_priority.direction must be top, up, down or bottom")
+        clean["direction"] = str(params["direction"])
+    elif action == "add_tag":
+        if not params.get("tag"):
+            raise ConfigError(f"{where}: add_tag needs params.tag")
+        clean["tag"] = str(params["tag"])
+    elif action == "set_location":
+        if not params.get("path"):
+            raise ConfigError(f"{where}: set_location needs params.path")
+        clean["path"] = str(params["path"])
+    return clean
+
+
+def _parse_automation(raw: dict, index: int) -> Automation:
+    where = f"automations[{index}]"
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{where} must be a mapping")
+    action = str(raw.get("action", "set_category"))
+    params = _validate_action(action, raw.get("params") or {}, where)
+
+    name_regex = None
+    if raw.get("name_regex"):
+        try:
+            name_regex = re.compile(str(raw["name_regex"]), re.IGNORECASE)
+        except re.error as exc:
+            raise ConfigError(f"{where}.name_regex is not valid: {exc}") from exc
+    category_is = None
+    if "category_is" in raw and raw["category_is"] is not None:
+        category_is = _as_str_list(raw["category_is"], f"{where}.category_is")
+
+    return Automation(
+        name=str(raw.get("name", f"automation {index + 1}")),
+        enabled=bool(raw.get("enabled", True)),
+        action=action,
+        params=params,
+        complete_only=bool(raw.get("complete_only", True)),
+        name_regex=name_regex,
+        name_contains=_as_str_list(raw.get("name_contains"), f"{where}.name_contains"),
+        tracker_contains=_as_str_list(raw.get("tracker_contains"), f"{where}.tracker_contains"),
+        save_path_contains=_as_str_list(raw.get("save_path_contains"), f"{where}.save_path_contains"),
+        category_is=category_is,
+        min_size_gb=raw.get("min_size_gb"),
+        max_size_gb=raw.get("max_size_gb"),
+    )
+
+
+def automation_to_dict(a: Automation) -> dict:
+    d: dict[str, Any] = {
+        "name": a.name, "enabled": a.enabled, "action": a.action,
+        "params": dict(a.params), "complete_only": a.complete_only,
+    }
+    if a.name_regex is not None:
+        d["name_regex"] = a.name_regex.pattern
+    if a.name_contains:
+        d["name_contains"] = list(a.name_contains)
+    if a.tracker_contains:
+        d["tracker_contains"] = list(a.tracker_contains)
+    if a.save_path_contains:
+        d["save_path_contains"] = list(a.save_path_contains)
+    if a.category_is is not None:
+        d["category_is"] = list(a.category_is)
+    if a.min_size_gb is not None:
+        d["min_size_gb"] = a.min_size_gb
+    if a.max_size_gb is not None:
+        d["max_size_gb"] = a.max_size_gb
+    return d
+
+
+def validate_automations(raw_list: list) -> list[dict]:
+    if not isinstance(raw_list, list):
+        raise ConfigError("'automations' must be a list")
+    return [automation_to_dict(_parse_automation(raw, i)) for i, raw in enumerate(raw_list)]
+
+
 def load_config(path: str | Path) -> Config:
     """Read, parse and validate the config file at `path`."""
     path = Path(path)
@@ -244,6 +372,11 @@ def load_config(path: str | Path) -> Config:
         raise ConfigError("'rules' must be a list")
     rules = [_parse_rule(r, i) for i, r in enumerate(raw_rules)]
 
+    raw_autos = raw.get("automations") or []
+    if not isinstance(raw_autos, list):
+        raise ConfigError("'automations' must be a list")
+    automations = [_parse_automation(a, i) for i, a in enumerate(raw_autos)]
+
     default_category = raw.get("default_category")
     if default_category is not None:
         default_category = str(default_category)
@@ -278,6 +411,7 @@ def load_config(path: str | Path) -> Config:
         qbittorrent=qbit,
         states=states,
         rules=rules,
+        automations=automations,
         dry_run=_env_bool("DRY_RUN", bool(raw.get("dry_run", True))),
         enable_autotmm=bool(raw.get("enable_autotmm", True)),
         create_missing_categories=bool(raw.get("create_missing_categories", False)),

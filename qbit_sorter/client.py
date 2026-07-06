@@ -72,6 +72,9 @@ class QbitClient:
     def set_category(self, category: str, hashes: list[str]) -> None:
         self._client.torrents_set_category(category=category, torrent_hashes=hashes)
 
+    def add_tags(self, tags: str | list[str], hashes: list[str]) -> None:
+        self._client.torrents_add_tags(tags=tags, torrent_hashes=hashes)
+
     def organize(self, category: str, save_path: str, default_save_path: str,
                  hashes: list[str]) -> tuple[int, int, str]:
         """Move the **complete** torrents among `hashes` into the category's

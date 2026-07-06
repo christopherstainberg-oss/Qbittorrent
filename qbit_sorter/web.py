@@ -22,11 +22,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import audiobooks as ab_mod
+from . import automations as auto_mod
 from . import config_store
 from . import relocator
 from .client import QbitClient
-from .config import (VALID_STATES, Config, ConfigError, load_config,
-                     relocation_to_dict, rule_to_dict, validate_rules)
+from .config import (AUTOMATION_ACTIONS, VALID_STATES, Config, ConfigError,
+                     automation_to_dict, load_config, relocation_to_dict,
+                     rule_to_dict, validate_automations, validate_rules)
 from .rules import TorrentView, match_torrent
 from .scheduler import PipelineRunner
 from .sorter import Plan, apply_plan, build_plan
@@ -47,6 +49,10 @@ class RunBody(BaseModel):
 
 class RulesBody(BaseModel):
     rules: list[dict]
+
+
+class AutomationsBody(BaseModel):
+    automations: list[dict]
 
 
 class SettingsBody(BaseModel):
@@ -347,6 +353,24 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         changed = [r for r in results if not r.get("skipped")]
         return {"dry_run": body.dry_run, "count": len(changed), "results": results}
 
+    @app.post("/api/automations/run")
+    def automations_run(body: RunBody) -> dict[str, Any]:
+        """Evaluate every enabled trigger->action automation and apply it."""
+        if not any(a.enabled for a in state.cfg.automations):
+            raise HTTPException(status_code=400,
+                                detail="No enabled automations (Automations tab).")
+        try:
+            results = auto_mod.run(state.cfg, state.client(), dry_run=body.dry_run)
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        applied = sum(r.get("applied", 0) for r in results)
+        return {"dry_run": body.dry_run, "applied": applied, "results": results}
+
+    @app.get("/api/automation-actions")
+    def automation_actions() -> dict[str, list[str]]:
+        """Action types + their required params, so the UI can render the editor."""
+        return {k: list(v) for k, v in AUTOMATION_ACTIONS.items()}
+
     @app.post("/api/set-category")
     def set_category(body: SetCategoryBody) -> dict[str, Any]:
         if not body.hashes:
@@ -406,6 +430,7 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         """Full editable config for the UI editors."""
         return {
             "rules": [rule_to_dict(r) for r in state.cfg.rules],
+            "automations": [automation_to_dict(a) for a in state.cfg.automations],
             "default_category": state.cfg.default_category,
             "settings": {
                 "dry_run": state.cfg.dry_run,
@@ -447,6 +472,17 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         except ConfigError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"ok": True, "rules": [rule_to_dict(r) for r in state.cfg.rules]}
+
+    @app.put("/api/automations")
+    def put_automations(body: AutomationsBody) -> dict[str, Any]:
+        try:
+            cleaned = validate_automations(body.automations)  # validates actions/params
+            config_store.save_automations(state.config_path, cleaned)
+            _reload()
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"ok": True,
+                "automations": [automation_to_dict(a) for a in state.cfg.automations]}
 
     @app.put("/api/settings")
     def put_settings(body: SettingsBody) -> dict[str, Any]:
