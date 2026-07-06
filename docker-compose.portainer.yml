@@ -30,6 +30,10 @@ services:
       - "8500:8500"                  # web UI + API + webhook
     volumes:
       - qbit_config:/config          # config.yaml lives here, auto-seeded
+      # Library relocation: one mount of the common parent so downloads and the
+      # library share a filesystem -> hardlinks work (see AUTOMATIONS.md / the
+      # Integrations tab). This host path MUST exist or the container won't start.
+      - "/mnt/Tank/Server VI:/data"  # host <pool>/<parent> -> /data in the container
     # Values below read from Portainer's "Environment variables" panel, with
     # sensible defaults after ":-". Set them in Portainer to override.
     environment:
