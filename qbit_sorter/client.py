@@ -72,6 +72,52 @@ class QbitClient:
     def set_category(self, category: str, hashes: list[str]) -> None:
         self._client.torrents_set_category(category=category, torrent_hashes=hashes)
 
+    # ---- Download-queue priority -------------------------------------------
+    # These reorder torrents in qBittorrent's download/seed queue. They only
+    # have an effect when Torrent Queueing is enabled; with it off qBittorrent
+    # returns HTTP 409, which callers surface as a helpful message.
+
+    def queueing_enabled(self) -> bool:
+        """Whether qBittorrent's Torrent Queueing is turned on (required for
+        queue-priority changes to take effect)."""
+        return bool(self._client.app.preferences.get("queueing_enabled", False))
+
+    def set_queueing_enabled(self, enabled: bool) -> None:
+        self._client.app_set_preferences(prefs={"queueing_enabled": bool(enabled)})
+
+    def top_priority(self, hashes: list[str]) -> None:
+        """Move torrents to the top of the queue (download/seed first)."""
+        self._client.torrents_top_priority(torrent_hashes=hashes)
+
+    def bottom_priority(self, hashes: list[str]) -> None:
+        """Move torrents to the bottom of the queue (download/seed last)."""
+        self._client.torrents_bottom_priority(torrent_hashes=hashes)
+
+    def increase_priority(self, hashes: list[str]) -> None:
+        """Move torrents one step up the queue (higher priority / sooner)."""
+        self._client.torrents_increase_priority(torrent_hashes=hashes)
+
+    def decrease_priority(self, hashes: list[str]) -> None:
+        """Move torrents one step down the queue (lower priority / later)."""
+        self._client.torrents_decrease_priority(torrent_hashes=hashes)
+
+    # ---- Per-file download priority ----------------------------------------
+    # qBittorrent priority codes: 0 = do not download, 1 = normal, 6 = high,
+    # 7 = maximal. A torrent shows "Mixed" in its UI when its files don't all
+    # share the same priority; setting one level makes them uniform again.
+
+    def set_all_files_priority(self, torrent_hash: str, priority: int) -> int:
+        """Set every file in a torrent to `priority`. Returns the number of
+        files changed (0 if the torrent has no files yet, e.g. still fetching
+        metadata)."""
+        files = self._client.torrents_files(torrent_hash=torrent_hash)
+        ids = [f.get("index", i) for i, f in enumerate(files)]
+        if not ids:
+            return 0
+        self._client.torrents_file_priority(
+            torrent_hash=torrent_hash, file_ids=ids, priority=priority)
+        return len(ids)
+
     def enable_autotmm(self, hashes: list[str]) -> None:
         self._client.torrents_set_auto_management(enable=True, torrent_hashes=hashes)
 

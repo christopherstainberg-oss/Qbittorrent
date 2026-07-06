@@ -51,6 +51,11 @@
   .hidden{display:none}
   select.rowsel{padding:4px 6px;font-size:12px;max-width:150px}
   select.changed{border-color:var(--warn);color:var(--warn)}
+  @keyframes newrow-fade{from{background:rgba(74,163,223,.30)}to{background:transparent}}
+  tr.newrow td{animation:newrow-fade 6s ease-out}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:5px;vertical-align:middle}
+  .dot.live{background:var(--accent2);box-shadow:0 0 0 0 rgba(47,143,91,.6);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(47,143,91,.5)}70%{box-shadow:0 0 0 5px rgba(47,143,91,0)}100%{box-shadow:0 0 0 0 rgba(47,143,91,0)}}
   .log{background:#0b1219;border:1px solid var(--line);border-radius:8px;padding:12px;
     font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;
     max-height:240px;overflow:auto;margin-top:14px}
@@ -92,7 +97,22 @@
   <!-- ============ TORRENTS ============ -->
   <section class="view active" id="view-torrents">
     <div class="bar">
-      <button id="refresh">↻ Refresh</button>
+      <button id="refresh"><span class="dot" id="autoDot"></span>↻ Refresh</button>
+      <span class="muted">View:</span>
+      <select id="stateFilter" title="which torrents to list">
+        <option value="">Default (configured)</option>
+        <option value="downloading">Downloading (queue)</option>
+        <option value="all">All</option>
+        <option value="completed">Completed</option>
+        <option value="seeding">Seeding</option>
+      </select>
+      <label class="switch" title="automatically pick up newly added torrents"><input type="checkbox" id="autoRefresh"> Auto-refresh</label>
+      <select id="autoInterval" title="auto-refresh interval">
+        <option value="5">5s</option>
+        <option value="10" selected>10s</option>
+        <option value="30">30s</option>
+        <option value="60">60s</option>
+      </select>
       <button id="preview" class="primary">Preview rules</button>
       <button id="apply" class="go">Apply rules ▶</button>
       <button id="abPreview" class="hidden">Preview audiobooks</button>
@@ -106,14 +126,36 @@
       <input type="text" id="manualPath" placeholder="/path/on/disk" style="width:170px">
       <button id="manualMove" title="relocate selected torrents' data to this folder">Set location</button>
     </div>
+    <div class="bar">
+      <span class="muted">File download priority (selected):</span>
+      <select id="filePrio" title="applies to every file in each selected torrent">
+        <option value="1">Normal</option>
+        <option value="6">High</option>
+        <option value="7">Maximum</option>
+        <option value="0">Do not download</option>
+      </select>
+      <button id="filePrioApply" title="set every file in each selected torrent to this priority">Apply to all files ▶</button>
+      <span class="muted" style="font-size:12px">sets all files per torrent (overrides a “Mixed” torrent)</span>
+    </div>
+    <div class="bar">
+      <span class="muted">Queue position (selected):</span>
+      <button id="prTop" class="sm" title="move to top of the queue — download/seed first">⤒ Top</button>
+      <button id="prUp" class="sm" title="move up one place in the queue">↑ Up</button>
+      <button id="prDown" class="sm" title="move down one place in the queue">↓ Down</button>
+      <button id="prBottom" class="sm" title="move to bottom of the queue — download/seed last">⤓ Bottom</button>
+      <span style="flex:1"></span>
+      <label class="switch" title="qBittorrent must have Torrent Queueing on for queue order to take effect">
+        <input type="checkbox" id="queueToggle"> Torrent queueing</label>
+    </div>
     <h2>Torrents <span class="count" id="torCount"></span></h2>
     <table>
       <thead><tr>
         <th style="width:28px"><input type="checkbox" id="selAll"></th>
+        <th style="width:40px" title="download-queue position (lower = downloads sooner)">#</th>
         <th>Name</th><th style="width:110px">State</th>
         <th style="width:150px">Current</th><th style="width:160px">Proposed</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="6" class="muted">loading…</td></tr></tbody>
     </table>
   </section>
 
@@ -265,6 +307,8 @@ async function loadInfo(){
     const showAb = !!i.audiobooks_enabled;
     $("#abPreview").classList.toggle("hidden",!showAb);
     $("#abApply").classList.toggle("hidden",!showAb);
+    $("#queueToggle").checked = !!i.queueing_enabled;
+    if(i.states) $("#stateFilter").options[0].text = `Default (${i.states.join(", ")})`;
   }catch(e){ $("#conn").textContent = "connection error: "+e.message; }
 }
 
@@ -302,15 +346,43 @@ function rowCatOptions(selected){
     `<option value="${esc(c.name)}"${c.name===selected?" selected":""}>${esc(c.name)}</option>`).join("");
   return none + extra + opts;
 }
-async function loadTorrents(){
-  const torrents = await api("/api/torrents");
+let SELECTED = new Set();     // hashes the user has checked (survives re-renders)
+let TORRENT_SIG = null;       // signature of the last rendered list (to skip no-op auto-refreshes)
+let PREV_HASHES = new Set();  // hashes present at the previous render (to spot new arrivals)
+
+// `auto`: called by the auto-refresh timer. In auto mode we (a) skip the whole
+// re-render when no torrent was added/removed so selections and open pickers are
+// left untouched, and (b) preserve the user's checkbox selection instead of
+// re-seeding it from the rule proposals.
+async function loadTorrents(auto=false){
+  const sf = $("#stateFilter").value;
+  const torrents = await api("/api/torrents" + (sf ? `?states=${encodeURIComponent(sf)}` : ""));
+  const curHashes = torrents.map(t=>t.hash);
+  const sig = curHashes.length + "|" + curHashes.slice().sort().join(",");
+  if(auto && sig === TORRENT_SIG) return;   // nothing added or removed — leave the table as-is
+  const added = (auto && PREV_HASHES.size) ? curHashes.filter(h=>!PREV_HASHES.has(h)) : [];
   $("#torCount").textContent = `(${torrents.length})`;
-  if(!torrents.length){ $("#rows").innerHTML='<tr><td colspan="5" class="muted">No completed/seeding torrents.</td></tr>'; return; }
+  if(!torrents.length){
+    $("#rows").innerHTML='<tr><td colspan="6" class="muted">No torrents match this view.</td></tr>';
+    SELECTED=new Set(); TORRENT_SIG=sig; PREV_HASHES=new Set(); return;
+  }
+  // Show queue order: queued torrents (priority > 0) first, ascending, then the rest by name.
+  torrents.sort((a,b)=>{
+    const pa=a.priority>0?a.priority:Infinity, pb=b.priority>0?b.priority:Infinity;
+    return pa!==pb ? pa-pb : a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+  // Manual/initial refresh seeds the selection from the rule proposals; auto-refresh
+  // keeps whatever the user currently has checked. Either way, drop vanished hashes.
+  if(!auto) SELECTED = new Set(torrents.filter(t=>t.changes).map(t=>t.hash));
+  SELECTED = new Set(curHashes.filter(h=>SELECTED.has(h)));
+  const addedSet = new Set(added);
   $("#rows").innerHTML = torrents.map(t=>{
     const propSel = t.proposed || t.category || "";     // default the proposed picker
     const changed = t.proposed && t.proposed !== t.category;
-    return `<tr>
-      <td><input type="checkbox" class="rowchk" data-hash="${t.hash}" ${t.changes?"checked":""}></td>
+    const pr = t.priority>0 ? t.priority : "—";
+    return `<tr class="${addedSet.has(t.hash)?"newrow":""}">
+      <td><input type="checkbox" class="rowchk" data-hash="${t.hash}" ${SELECTED.has(t.hash)?"checked":""}></td>
+      <td class="muted" style="text-align:right" title="download-queue position">${pr}</td>
       <td class="name" title="${esc(t.name)}">${esc(t.name)}<div class="muted" style="font-size:11px">${fmtSize(t.size)} · ${esc(t.save_path)}</div></td>
       <td class="muted">${esc(t.state)}</td>
       <td><select class="cur rowsel" data-hash="${t.hash}" title="change this torrent's category now">${rowCatOptions(t.category)}</select></td>
@@ -320,6 +392,8 @@ async function loadTorrents(){
       </div></td>
     </tr>`;
   }).join("");
+  TORRENT_SIG = sig; PREV_HASHES = new Set(curHashes);
+  if(added.length){ toast(`${added.length} new torrent(s) added`); logLine(`[auto-refresh] +${added.length} new torrent(s)`); }
 }
 const selectedHashes = ()=>$$(".rowchk:checked").map(c=>c.dataset.hash);
 
@@ -333,9 +407,14 @@ async function setOne(hash, category, which){
     await loadTorrents();
   }catch(e){ toast(e.message,true); logLine(`[${which}] ERROR: ${e.message}`); await loadTorrents(); }
 }
-// Current picker: change takes effect immediately.
+// Current picker: change takes effect immediately. Also keep SELECTED in sync
+// with row checkboxes so the selection survives auto-refresh re-renders.
 $("#rows").addEventListener("change",(e)=>{
   if(e.target.classList.contains("cur")) setOne(e.target.dataset.hash, e.target.value, "current");
+  else if(e.target.classList.contains("rowchk")){
+    if(e.target.checked) SELECTED.add(e.target.dataset.hash);
+    else SELECTED.delete(e.target.dataset.hash);
+  }
 });
 // Proposed: override then apply via the row button.
 $("#rows").addEventListener("click",(e)=>{
@@ -348,7 +427,35 @@ $("#rows").addEventListener("click",(e)=>{
 async function refreshAll(){ await Promise.all([loadInfo(), loadCategories(), loadTorrents()]); }
 
 $("#refresh").onclick = ()=>refreshAll().then(()=>toast("Refreshed"));
-$("#selAll").onchange = (e)=>$$(".rowchk").forEach(c=>c.checked=e.target.checked);
+$("#stateFilter").onchange = ()=>{ TORRENT_SIG=null; PREV_HASHES=new Set(); loadTorrents().catch(e=>toast(e.message,true)); };
+$("#selAll").onchange = (e)=>$$(".rowchk").forEach(c=>{
+  c.checked=e.target.checked;
+  if(e.target.checked) SELECTED.add(c.dataset.hash); else SELECTED.delete(c.dataset.hash);
+});
+
+/* ---------- auto-refresh (pick up newly added torrents) ---------- */
+let autoTimer=null, autoBusy=false;
+async function autoTick(){
+  // Skip when hidden, busy, or not looking at the Torrents tab — avoids wasted
+  // work and overlapping fetches on a slow/large instance.
+  if(autoBusy || document.hidden) return;
+  if(!$("#view-torrents").classList.contains("active")) return;
+  autoBusy=true;
+  try{ await loadTorrents(true); }catch(e){ /* transient: keep the timer alive */ }
+  finally{ autoBusy=false; }
+}
+function applyAutoRefresh(){
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
+  const on=$("#autoRefresh").checked;
+  const secs=parseInt($("#autoInterval").value,10)||10;
+  localStorage.setItem("autoRefresh", on?"1":"0");
+  localStorage.setItem("autoInterval", String(secs));
+  $("#autoDot").classList.toggle("live", on);
+  $("#autoInterval").disabled = !on;
+  if(on){ autoTimer=setInterval(autoTick, secs*1000); logLine(`[auto-refresh] on — every ${secs}s`); }
+}
+$("#autoRefresh").onchange = applyAutoRefresh;
+$("#autoInterval").onchange = applyAutoRefresh;
 
 async function runRules(dry){
   const btn = dry?$("#preview"):$("#apply"); btn.disabled=true;
@@ -415,6 +522,48 @@ $("#manualMove").onclick = async ()=>{
     const r = await api("/api/set-location",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,location})});
     logLine(`[location] moved ${r.count} torrent(s) → ${r.location}`); toast(`Moving ${r.count} → ${location}`); await loadTorrents();
   }catch(e){ toast(e.message,true); logLine("[location] ERROR: "+e.message); }
+};
+
+/* ---------- file download priority (bulk, all files per torrent) ---------- */
+$("#filePrioApply").onclick = async ()=>{
+  const hashes=selectedHashes();
+  const priority=parseInt($("#filePrio").value,10);
+  const label=$("#filePrio").selectedOptions[0].text;
+  if(!hashes.length) return toast("Select at least one torrent",true);
+  if(priority===0 && !confirm(`Set ALL files in ${hashes.length} torrent(s) to “Do not download”?\nThis stops downloading their content.`)) return;
+  const btn=$("#filePrioApply"); btn.disabled=true;
+  try{
+    logLine(`[file-priority] setting ${hashes.length} torrent(s) → ${label}…`);
+    const r=await api("/api/set-file-priority",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,priority})});
+    logLine(`  ${label}: ${r.count} torrent(s) updated`
+      + (r.no_files?`, ${r.no_files} had no files yet`:"")
+      + (r.errors.length?`, ${r.errors.length} error(s)`:""));
+    r.errors.forEach(e=>logLine(`  ERROR ${e.hash.slice(0,8)}…: ${e.error}`));
+    toast(`Priority ${label} → ${r.count} torrent(s)`);
+    await loadTorrents();
+  }catch(e){ toast(e.message,true); logLine("[file-priority] ERROR: "+e.message); }
+  finally{ btn.disabled=false; }
+};
+
+/* ---------- queue-order priority ---------- */
+async function setPriority(action){
+  const hashes=selectedHashes();
+  if(!hashes.length) return toast("Select at least one torrent",true);
+  try{
+    const r=await api("/api/set-priority",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hashes,action})});
+    logLine(`[priority] ${action} → ${r.count} torrent(s)`); toast(`Priority: ${action}`); await loadTorrents();
+  }catch(e){ toast(e.message,true); logLine("[priority] ERROR: "+e.message); }
+}
+$("#prTop").onclick = ()=>setPriority("top");
+$("#prUp").onclick = ()=>setPriority("up");
+$("#prDown").onclick = ()=>setPriority("down");
+$("#prBottom").onclick = ()=>setPriority("bottom");
+$("#queueToggle").onchange = async (e)=>{
+  const enabled=e.target.checked;
+  try{
+    await api("/api/queueing",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});
+    toast(`Torrent queueing ${enabled?"on":"off"}`); logLine(`[queueing] ${enabled?"enabled":"disabled"}`); await loadTorrents();
+  }catch(err){ toast(err.message,true); e.target.checked=!enabled; }  // revert on failure
 };
 
 /* ---------- rules editor ---------- */
@@ -570,6 +719,13 @@ function showSetupHint(){
   if (autoTab) autoTab.click();
   loadAutomation().catch(()=>{});   // still populates the backend-URL field
 }
+// Restore the persisted auto-refresh preference and start the timer if it was on.
+(function initAutoRefresh(){
+  const savedInt = localStorage.getItem("autoInterval");
+  if(savedInt && [...$("#autoInterval").options].some(o=>o.value===savedInt)) $("#autoInterval").value = savedInt;
+  $("#autoRefresh").checked = localStorage.getItem("autoRefresh")==="1";
+  applyAutoRefresh();
+})();
 async function bootstrap(){
   try{
     await refreshAll();

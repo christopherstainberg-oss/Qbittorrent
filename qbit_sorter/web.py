@@ -24,8 +24,8 @@ from pydantic import BaseModel
 from . import audiobooks as ab_mod
 from . import config_store
 from .client import QbitClient
-from .config import (Config, ConfigError, load_config, rule_to_dict,
-                     validate_rules)
+from .config import (VALID_STATES, Config, ConfigError, load_config,
+                     rule_to_dict, validate_rules)
 from .rules import TorrentView, match_torrent
 from .scheduler import PipelineRunner
 from .sorter import Plan, apply_plan, build_plan
@@ -71,6 +71,20 @@ class SavePathBody(BaseModel):
 class SetLocationBody(BaseModel):
     hashes: list[str]
     location: str
+
+
+class SetPriorityBody(BaseModel):
+    hashes: list[str]
+    action: str  # "top" | "up" | "down" | "bottom"
+
+
+class QueueingBody(BaseModel):
+    enabled: bool
+
+
+class SetFilePriorityBody(BaseModel):
+    hashes: list[str]
+    priority: int  # 0 do-not-download, 1 normal, 6 high, 7 maximal
 
 
 class _State:
@@ -157,6 +171,7 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
                          "category": s.category, "command": s.command}
                         for s in state.cfg.arr],
                 "dry_run": state.cfg.dry_run,
+                "queueing_enabled": bool(c.app.preferences.get("queueing_enabled", False)),
                 "rules": [{"name": r.name, "category": r.category} for r in state.cfg.rules],
             }
         except Exception as exc:  # noqa: BLE001
@@ -175,9 +190,20 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         return out
 
     @app.get("/api/torrents")
-    def torrents() -> list[dict[str, Any]]:
+    def torrents(states: str | None = None) -> list[dict[str, Any]]:
+        # `states` (comma-separated) overrides the configured list for this
+        # request only — lets the UI view the download queue (which lives in
+        # states like "downloading") without changing the sorter's config.
+        if states:
+            want = [s.strip() for s in states.split(",") if s.strip()]
+            bad = [s for s in want if s not in VALID_STATES]
+            if bad:
+                raise HTTPException(status_code=400,
+                                    detail=f"Unknown state(s): {', '.join(bad)}")
+        else:
+            want = state.cfg.states
         try:
-            raw = state.client().torrents(state.cfg.states)
+            raw = state.client().torrents(want)
         except Exception as exc:  # noqa: BLE001
             raise _err(exc)
         views = [TorrentView.from_api(t) for t in raw]
@@ -193,6 +219,7 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
                 "size": t.size,
                 "state": t.state,
                 "save_path": t.save_path,
+                "priority": t.priority,
                 "changes": bool(proposed) and proposed != t.category,
             })
         return out
@@ -381,6 +408,91 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             raise _err(exc)
         return {"ok": True, "location": loc, "count": len(body.hashes)}
+
+    _PRIORITY_ACTIONS = {"top", "up", "down", "bottom"}
+
+    @app.post("/api/set-priority")
+    def set_priority(body: SetPriorityBody) -> dict[str, Any]:
+        """Reorder selected torrents in qBittorrent's download/seed queue.
+        action: top | up | down | bottom."""
+        if not body.hashes:
+            raise HTTPException(status_code=400, detail="No torrents selected.")
+        action = body.action.strip().lower()
+        if action not in _PRIORITY_ACTIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action '{body.action}'. Use top, up, down or bottom.",
+            )
+        try:
+            client = state.client()
+            # Queue priority is a no-op (and qBittorrent returns 409) unless
+            # Torrent Queueing is enabled — fail early with a clear message.
+            if not client.queueing_enabled():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Torrent Queueing is disabled in qBittorrent, so download "
+                           "priority has no effect. Enable it first (there's a toggle "
+                           "in the toolbar, or qBittorrent → Options → BitTorrent).",
+                )
+            {
+                "top": client.top_priority,
+                "up": client.increase_priority,
+                "down": client.decrease_priority,
+                "bottom": client.bottom_priority,
+            }[action](body.hashes)
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        return {"ok": True, "action": action, "count": len(body.hashes)}
+
+    # qBittorrent per-file priority codes. "Mixed" is a display-only state
+    # (files differ) — it can't be set, only produced by editing files
+    # individually, so it isn't an accepted value here.
+    _FILE_PRIORITIES = {0, 1, 6, 7}
+
+    @app.post("/api/set-file-priority")
+    def set_file_priority(body: SetFilePriorityBody) -> dict[str, Any]:
+        """Set the download priority of ALL files in each selected torrent, in
+        bulk. priority: 0 = do not download, 1 = normal, 6 = high, 7 = maximal."""
+        if not body.hashes:
+            raise HTTPException(status_code=400, detail="No torrents selected.")
+        if body.priority not in _FILE_PRIORITIES:
+            raise HTTPException(
+                status_code=400,
+                detail="priority must be 0 (do not download), 1 (normal), "
+                       "6 (high) or 7 (maximal).",
+            )
+        client = state.client()
+        changed = 0        # torrents whose files were updated
+        no_files = 0       # torrents with no files yet (e.g. fetching metadata)
+        errors: list[dict[str, str]] = []
+        for h in body.hashes:
+            try:
+                n = client.set_all_files_priority(h, body.priority)
+                if n:
+                    changed += 1
+                else:
+                    no_files += 1
+            except Exception as exc:  # noqa: BLE001 — collect, don't abort the batch
+                errors.append({"hash": h, "error": str(exc)})
+        return {"ok": True, "priority": body.priority, "count": changed,
+                "no_files": no_files, "errors": errors}
+
+    @app.get("/api/queueing")
+    def get_queueing() -> dict[str, Any]:
+        try:
+            return {"enabled": state.client().queueing_enabled()}
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+
+    @app.put("/api/queueing")
+    def set_queueing(body: QueueingBody) -> dict[str, Any]:
+        try:
+            state.client().set_queueing_enabled(body.enabled)
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        return {"ok": True, "enabled": body.enabled}
 
     @app.get("/api/default-save-path")
     def get_default_save_path() -> dict[str, Any]:

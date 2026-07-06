@@ -21,6 +21,7 @@ class TorrentView:
     tracker: str
     size: int  # bytes
     state: str
+    priority: int  # queue position; 0 (or negative) means not queued
 
     @classmethod
     def from_api(cls, t: Any) -> "TorrentView":
@@ -32,6 +33,7 @@ class TorrentView:
             tracker=t.get("tracker", "") or "",
             size=int(t.get("size", 0) or 0),
             state=t.get("state", "") or "",
+            priority=int(t.get("priority", 0) or 0),
         )
 
 
