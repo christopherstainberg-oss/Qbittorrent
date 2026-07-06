@@ -185,17 +185,18 @@
   <section class="view" id="view-categories">
     <div class="card">
       <h3>Default save path</h3>
-      <p class="hint">qBittorrent's global download location — where torrents with no
-        category-specific path are stored. Changing this updates qBittorrent itself.</p>
+      <p class="hint">qBittorrent's global download location and the base for auto-organizing.
+        A category with no save path of its own places files in
+        <code>&lt;default&gt;/&lt;Category&gt;</code>. Changing this updates qBittorrent itself.</p>
       <div class="bar">
         <input type="text" id="defaultSavePath" placeholder="/downloads" style="flex:1;min-width:300px">
         <button id="saveDefaultPath" class="go">Save</button>
       </div>
     </div>
-    <p class="hint">Below are your qBittorrent categories and the folder each one saves to
-      (its “placement”). Edit a save path and Save to move future/relocated torrents there.
-      A category with no save path is managed elsewhere (e.g. Sonarr/Radarr) and won’t be
-      physically moved by this app.</p>
+    <p class="hint">Your qBittorrent categories, each one's save path, and the
+      <b>destination</b> where its torrents actually land. A category with no save path
+      auto-organizes into <code>&lt;default&gt;/&lt;Category&gt;</code> (completed torrents only);
+      set an explicit path to override.</p>
     <div class="bar">
       <input type="text" id="newCatName" placeholder="new category name" style="width:200px">
       <input type="text" id="newCatPath" placeholder="/save/path (optional)" style="width:280px">
@@ -203,8 +204,8 @@
       <button id="reloadCats">↻ Refresh</button>
     </div>
     <table>
-      <thead><tr><th style="width:230px">Category</th><th>Save path (placement)</th><th style="width:90px"></th></tr></thead>
-      <tbody id="catRows"><tr><td colspan="3" class="muted">loading…</td></tr></tbody>
+      <thead><tr><th style="width:190px">Category</th><th style="width:34%">Save path (placement)</th><th>Destination (files land here)</th><th style="width:70px"></th></tr></thead>
+      <tbody id="catRows"><tr><td colspan="4" class="muted">loading…</td></tr></tbody>
     </table>
   </section>
 
@@ -312,7 +313,8 @@ async function loadInfo(){
     const i = await api("/api/info");
     $("#conn").innerHTML = `connected to <b>${esc(i.host)}</b> · qBittorrent ${esc(i.version)} · `
       + `${i.rules.length} rule(s) · poll ${i.poll.enabled?"on":"off"} · `
-      + `${i.dry_run?'<span style="color:var(--warn)">dry-run</span>':"live"}`;
+      + `${i.dry_run?'<span style="color:var(--warn)">dry-run</span>':"live"}`
+      + (i.default_save_path?` · default path <code>${esc(i.default_save_path)}</code>`:"");
     const showAb = !!i.audiobooks_enabled;
     $("#abPreview").classList.toggle("hidden",!showAb);
     $("#abApply").classList.toggle("hidden",!showAb);
@@ -338,10 +340,11 @@ async function loadCategories(){
     <tr>
       <td><b>${esc(c.name)}</b></td>
       <td><input type="text" class="catpath" data-name="${esc(c.name)}" value="${esc(c.save_path)}"
-           placeholder="(no save path — managed elsewhere)" style="width:100%"></td>
+           placeholder="(none → auto: default/${esc(c.name)})" style="width:100%"></td>
+      <td><code>${esc(c.destination||"")}</code>${c.save_path?"":' <span class="muted" style="font-size:11px">(auto)</span>'}</td>
       <td><button class="sm savecat" data-name="${esc(c.name)}">Save</button></td>
     </tr>`).join("")
-    : '<tr><td colspan="3" class="muted">No categories in qBittorrent.</td></tr>';
+    : '<tr><td colspan="4" class="muted">No categories in qBittorrent.</td></tr>';
 }
 
 /* ---------- torrents ---------- */
@@ -650,6 +653,8 @@ $("#saveDefaultPath").onclick = async ()=>{
   try{
     const r=await api("/api/default-save-path",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({save_path})});
     toast("Default save path saved"); logLine(`[default path] → ${r.save_path}`);
+    await loadCategories();   // recompute the auto destinations against the new default
+    await loadInfo();         // refresh the header's default-path badge
   }catch(e){ toast(e.message,true); }
 };
 $("#reloadCats").onclick = ()=>loadCategories().then(()=>toast("Refreshed"));

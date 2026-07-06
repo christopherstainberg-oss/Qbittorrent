@@ -189,6 +189,7 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
                 "states": state.cfg.states,
                 "dry_run_default": state.cfg.dry_run,
                 "enable_autotmm": state.cfg.enable_autotmm,
+                "default_save_path": c.app.preferences.get("save_path", "") or "",
                 "audiobooks_enabled": state.cfg.audiobooks.enabled,
                 "audiobooks_category": state.cfg.audiobooks.category,
                 "poll": {"enabled": state.cfg.poll.enabled,
@@ -206,13 +207,19 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
     @app.get("/api/categories")
     def categories() -> list[dict[str, str]]:
         try:
-            cats = state.client().categories()
+            client = state.client()
+            cats = client.categories()
+            default_path = client.default_save_path()
         except Exception as exc:  # noqa: BLE001
             raise _err(exc)
         out = []
         for name, meta in sorted(cats.items()):
             save_path = meta.get("savePath", "") if isinstance(meta, dict) else ""
-            out.append({"name": name, "save_path": save_path})
+            # Where torrents in this category actually land — matches
+            # client.organize(): the category's save path, or <default>/<name>.
+            destination = save_path or (default_path.rstrip("/") + "/" + name)
+            out.append({"name": name, "save_path": save_path,
+                        "destination": destination})
         return out
 
     @app.get("/api/torrents")
