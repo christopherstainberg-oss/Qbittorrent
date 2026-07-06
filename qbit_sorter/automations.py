@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 from .client import QbitClient
-from .config import Automation, Config, Rule
+from .config import Automation, AutomationAction, Config, Rule
 from .rules import TorrentView, rule_matches
 
 log = logging.getLogger(__name__)
@@ -28,21 +28,21 @@ def _as_rule(a: Automation) -> Rule:
     )
 
 
-def _apply(client: QbitClient, a: Automation,
+def _apply(client: QbitClient, act: AutomationAction,
            matched: list[tuple[TorrentView, Any]], dry_run: bool) -> tuple[int, int, str]:
-    """Run the action on matched torrents. Returns (applied, skipped, note)."""
-    p = a.params
+    """Run one action on the matched torrents. Returns (applied, skipped, note)."""
+    p = act.params
     verb = "would" if dry_run else "did"
     hashes = [tv.hash for tv, _ in matched]
 
-    if a.action == "set_category":
+    if act.action == "set_category":
         target = p["category"]
         todo = [tv.hash for tv, _ in matched if tv.category != target]
         if todo and not dry_run:
             client.set_category(target, todo)
         return len(todo), len(matched) - len(todo), f"{verb} set category → '{target}'"
 
-    if a.action == "add_tag":
+    if act.action == "add_tag":
         tag = p["tag"]
         todo = [tv.hash for tv, raw in matched
                 if tag not in [x.strip() for x in (raw.get("tags", "") or "").split(",")]]
@@ -50,27 +50,27 @@ def _apply(client: QbitClient, a: Automation,
             client.add_tags(tag, todo)
         return len(todo), len(matched) - len(todo), f"{verb} add tag '{tag}'"
 
-    if a.action == "file_priority":
+    if act.action == "file_priority":
         pri = int(p["priority"])
         if not dry_run:
             for h in hashes:
                 client.set_all_files_priority(h, pri)
         return len(hashes), 0, f"{verb} set file priority {pri}"
 
-    if a.action == "queue_priority":
+    if act.action == "queue_priority":
         fn = {"top": client.top_priority, "up": client.increase_priority,
               "down": client.decrease_priority, "bottom": client.bottom_priority}[p["direction"]]
         if not dry_run:
             fn(hashes)
         return len(hashes), 0, f"{verb} move queue {p['direction']}"
 
-    if a.action == "set_location":
+    if act.action == "set_location":
         target = p["path"]
         if not dry_run:
             client.set_location(target, hashes)
         return len(hashes), 0, f"{verb} set location → '{target}'"
 
-    return 0, len(matched), f"unknown action '{a.action}'"
+    return 0, len(matched), f"unknown action '{act.action}'"
 
 
 def run(cfg: Config, client: QbitClient, dry_run: bool = True) -> list[dict]:
@@ -93,19 +93,26 @@ def run(cfg: Config, client: QbitClient, dry_run: bool = True) -> list[dict]:
                 continue
             matched.append((tv, raw))
 
-        res: dict[str, Any] = {"name": a.name, "action": a.action,
-                               "matched": len(matched), "applied": 0, "skipped": 0}
+        res: dict[str, Any] = {"name": a.name, "matched": len(matched),
+                               "applied": 0, "actions": []}
         if not matched:
             res["note"] = "no matches"
             results.append(res)
             continue
-        try:
-            applied, skipped, note = _apply(client, a, matched, dry_run)
-            res.update(applied=applied, skipped=skipped, note=note)
-            log.info("Automation '%s': matched %d, %s (%s)%s", a.name, len(matched),
-                     note, a.action, " [dry-run]" if dry_run else "")
-        except Exception as exc:  # noqa: BLE001 — report, keep going
-            res["note"] = f"error — {exc}"
-            log.warning("Automation '%s' failed: %s", a.name, exc)
+        notes = []
+        for act in a.actions:
+            entry: dict[str, Any] = {"action": act.action, "applied": 0, "skipped": 0}
+            try:
+                applied, skipped, note = _apply(client, act, matched, dry_run)
+                entry.update(applied=applied, skipped=skipped, note=note)
+                res["applied"] += applied
+            except Exception as exc:  # noqa: BLE001 — report, keep going
+                entry["note"] = f"error — {exc}"
+                log.warning("Automation '%s' action '%s' failed: %s", a.name, act.action, exc)
+            res["actions"].append(entry)
+            notes.append(entry["note"])
+        res["note"] = "; ".join(notes)
+        log.info("Automation '%s': matched %d — %s%s", a.name, len(matched),
+                 res["note"], " [dry-run]" if dry_run else "")
         results.append(res)
     return results

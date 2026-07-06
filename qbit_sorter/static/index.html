@@ -709,14 +709,21 @@ function paramControl(action, params){
   if(action==="set_location") return `<input type="text" data-p="path" value="${esc(params.path||"")}" placeholder="/path/on/disk">`;
   return "";
 }
+function actionRow(act, ai){
+  const a = act.action||"set_category";
+  return `<div class="autoAction" data-ai="${ai}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+    <select data-af="action" style="max-width:160px">${Object.keys(ACTION_LABELS).map(k=>`<option value="${k}"${k===a?" selected":""}>${ACTION_LABELS[k]}</option>`).join("")}</select>
+    <span class="muted">→</span>
+    <span class="apval">${paramControl(a, act.params)}</span>
+    <button class="sm danger delAct" title="remove this action">✕</button>
+  </div>`;
+}
 function autoCard(a, idx){
-  const act=a.action||"set_category";
+  const acts = (a.actions && a.actions.length) ? a.actions : [{action:"set_category", params:{}}];
   return `<div class="card" data-idx="${idx}">
     <div class="grid">
       <div class="field"><label>Name</label><input type="text" data-f="name" value="${esc(a.name||"")}"></div>
       <div class="field"><label class="switch"><input type="checkbox" data-f="enabled" ${a.enabled!==false?"checked":""}> Enabled</label></div>
-      <div class="field"><label>Action (when matched, do…)</label><select data-f="action">${Object.keys(ACTION_LABELS).map(k=>`<option value="${k}"${k===act?" selected":""}>${ACTION_LABELS[k]}</option>`).join("")}</select></div>
-      <div class="field autoparam"><label>Action value</label>${paramControl(act, a.params)}</div>
       <div class="field"><label class="switch"><input type="checkbox" data-f="complete_only" ${a.complete_only!==false?"checked":""}> Only completed torrents</label></div>
       <div class="field"><label>Name regex</label><input type="text" data-f="name_regex" value="${esc(a.name_regex||"")}" placeholder="e.g. s\\d+e\\d+"></div>
       <div class="field"><label>Name contains (any)</label><input type="text" data-f="name_contains" value="${esc(listVal(a.name_contains))}" placeholder="1080p, x265"></div>
@@ -726,17 +733,27 @@ function autoCard(a, idx){
       <div class="field"><label>Min size (GB)</label><input type="number" step="0.1" data-f="min_size_gb" value="${a.min_size_gb??""}"></div>
       <div class="field"><label>Max size (GB)</label><input type="number" step="0.1" data-f="max_size_gb" value="${a.max_size_gb??""}"></div>
     </div>
-    <div class="row-actions"><button class="sm danger delAuto">Delete</button><span class="muted">automation #${idx+1}</span></div>
+    <label style="display:block;margin:14px 0 6px">When matched, do these actions:</label>
+    <div class="autoActions">${acts.map(actionRow).join("")}</div>
+    <div class="row-actions">
+      <button class="sm addAct">+ Add action</button>
+      <span style="flex:1"></span>
+      <button class="sm danger delAuto">Delete automation</button>
+      <span class="muted">automation #${idx+1}</span>
+    </div>
   </div>`;
 }
 function renderAutos(){ $("#autoList").innerHTML = AUTOS.map(autoCard).join("") || '<p class="muted">No automations. Add one.</p>'; }
 function collectAutos(){
   return $$("#autoList .card").map(card=>{
     const g=(f)=>{ const el=card.querySelector(`[data-f="${f}"]`); return el?(el.type==="checkbox"?el.checked:el.value.trim()):""; };
-    const action=g("action")||"set_category";
-    const pEl=card.querySelector("[data-p]"); const params={};
-    if(pEl){ let v=pEl.value; if(pEl.dataset.p==="priority") v=parseInt(v,10); params[pEl.dataset.p]=v; }
-    const out={name:g("name")||"automation", enabled:g("enabled"), action, params, complete_only:g("complete_only")};
+    const actions=[...card.querySelectorAll(".autoAction")].map(row=>{
+      const action=row.querySelector('[data-af="action"]').value;
+      const pEl=row.querySelector("[data-p]"); const params={};
+      if(pEl){ let v=pEl.value; if(pEl.dataset.p==="priority") v=parseInt(v,10); params[pEl.dataset.p]=v; }
+      return {action, params};
+    });
+    const out={name:g("name")||"automation", enabled:g("enabled"), actions, complete_only:g("complete_only")};
     if(g("name_regex")) out.name_regex=g("name_regex");
     if(g("name_contains")) out.name_contains=parseList(g("name_contains"));
     if(g("tracker_contains")) out.tracker_contains=parseList(g("tracker_contains"));
@@ -750,14 +767,23 @@ function collectAutos(){
 async function loadAutos(){ const c=await api("/api/config"); AUTOS=c.automations||[]; renderAutos(); }
 $("#addAuto").onclick = ()=>{ AUTOS=collectAutos(); AUTOS.push({name:"New automation",enabled:true,action:"set_category",params:{},complete_only:true}); renderAutos(); };
 $("#reloadAutos").onclick = ()=>loadAutos().then(()=>toast("Reverted to saved"));
-// Re-render a card's action-value control when its action changes.
+// Re-render an action row's value control when its action changes.
 $("#autoList").addEventListener("change",(e)=>{
-  if(e.target.matches('[data-f="action"]')){
-    const idx=+e.target.closest(".card").dataset.idx;
-    AUTOS=collectAutos(); AUTOS[idx].action=e.target.value; AUTOS[idx].params={}; renderAutos();
+  if(e.target.matches('[data-af="action"]')){
+    const idx=+e.target.closest(".card").dataset.idx, ai=+e.target.closest(".autoAction").dataset.ai;
+    AUTOS=collectAutos(); AUTOS[idx].actions[ai]={action:e.target.value, params:{}}; renderAutos();
   }
 });
-$("#autoList").onclick = (e)=>{ if(e.target.classList.contains("delAuto")){ const idx=+e.target.closest(".card").dataset.idx; AUTOS=collectAutos(); AUTOS.splice(idx,1); renderAutos(); } };
+$("#autoList").onclick = (e)=>{
+  const card=e.target.closest(".card"); if(!card) return; const idx=+card.dataset.idx;
+  if(e.target.classList.contains("delAuto")){ AUTOS=collectAutos(); AUTOS.splice(idx,1); renderAutos(); }
+  else if(e.target.classList.contains("addAct")){ AUTOS=collectAutos(); AUTOS[idx].actions.push({action:"set_category",params:{}}); renderAutos(); }
+  else if(e.target.classList.contains("delAct")){
+    const ai=+e.target.closest(".autoAction").dataset.ai; AUTOS=collectAutos();
+    if(AUTOS[idx].actions.length<=1) return toast("Keep at least one action",true);
+    AUTOS[idx].actions.splice(ai,1); renderAutos();
+  }
+};
 async function saveAutos(){
   const automations=collectAutos();
   const r=await api("/api/automations",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({automations})});

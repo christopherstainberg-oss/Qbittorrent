@@ -39,15 +39,22 @@ class Rule:
 
 
 @dataclass
+class AutomationAction:
+    """One action within an automation: what to do + its value(s)."""
+
+    action: str  # set_category|file_priority|queue_priority|add_tag|set_location
+    params: dict = field(default_factory=dict)
+
+
+@dataclass
 class Automation:
     """A user-defined trigger -> action automation. The conditions mirror Rule
-    (every set condition must match, AND). When a torrent matches, `action` runs
-    with `params`. `complete_only` limits it to fully-downloaded torrents."""
+    (every set condition must match, AND). When a torrent matches, EACH action
+    in `actions` runs in order. `complete_only` limits it to finished torrents."""
 
     name: str
     enabled: bool = True
-    action: str = "set_category"  # set_category|file_priority|queue_priority|add_tag|set_location
-    params: dict = field(default_factory=dict)
+    actions: list[AutomationAction] = field(default_factory=list)
     complete_only: bool = True
     name_regex: re.Pattern | None = None
     name_contains: list[str] = field(default_factory=list)
@@ -270,8 +277,22 @@ def _parse_automation(raw: dict, index: int) -> Automation:
     where = f"automations[{index}]"
     if not isinstance(raw, dict):
         raise ConfigError(f"{where} must be a mapping")
-    action = str(raw.get("action", "set_category"))
-    params = _validate_action(action, raw.get("params") or {}, where)
+
+    # Accept a list of actions, or the legacy single action/params form.
+    raw_actions = raw.get("actions")
+    if raw_actions is None and raw.get("action"):
+        raw_actions = [{"action": raw.get("action"), "params": raw.get("params") or {}}]
+    if not raw_actions:
+        raise ConfigError(f"{where} needs at least one action")
+    if not isinstance(raw_actions, list):
+        raise ConfigError(f"{where}.actions must be a list")
+    actions: list[AutomationAction] = []
+    for j, ra in enumerate(raw_actions):
+        if not isinstance(ra, dict):
+            raise ConfigError(f"{where}.actions[{j}] must be a mapping")
+        act = str(ra.get("action", ""))
+        params = _validate_action(act, ra.get("params") or {}, f"{where}.actions[{j}]")
+        actions.append(AutomationAction(action=act, params=params))
 
     name_regex = None
     if raw.get("name_regex"):
@@ -286,8 +307,7 @@ def _parse_automation(raw: dict, index: int) -> Automation:
     return Automation(
         name=str(raw.get("name", f"automation {index + 1}")),
         enabled=bool(raw.get("enabled", True)),
-        action=action,
-        params=params,
+        actions=actions,
         complete_only=bool(raw.get("complete_only", True)),
         name_regex=name_regex,
         name_contains=_as_str_list(raw.get("name_contains"), f"{where}.name_contains"),
@@ -301,8 +321,8 @@ def _parse_automation(raw: dict, index: int) -> Automation:
 
 def automation_to_dict(a: Automation) -> dict:
     d: dict[str, Any] = {
-        "name": a.name, "enabled": a.enabled, "action": a.action,
-        "params": dict(a.params), "complete_only": a.complete_only,
+        "name": a.name, "enabled": a.enabled, "complete_only": a.complete_only,
+        "actions": [{"action": act.action, "params": dict(act.params)} for act in a.actions],
     }
     if a.name_regex is not None:
         d["name_regex"] = a.name_regex.pattern

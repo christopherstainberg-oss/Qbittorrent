@@ -147,7 +147,8 @@ relocation:
 
 # --- Automations (trigger -> action) ---------------------------------------
 # User-defined "if this, then that" rules. Conditions match like `rules` above
-# (every set condition must pass). When a torrent matches, ONE action runs:
+# (every set condition must pass). When a torrent matches, EACH action in
+# `actions` runs, in order. Available actions and their params:
 #   set_category   -> params: {category: "Name"}
 #   file_priority  -> params: {priority: 0|1|6|7}   (0 skip,1 normal,6 high,7 max)
 #   queue_priority -> params: {direction: top|up|down|bottom}
@@ -155,15 +156,21 @@ relocation:
 #   set_location   -> params: {path: "/path"}
 # complete_only (default true) limits an automation to fully-downloaded torrents.
 # These run in the pipeline (poll/webhook) and on demand from the Automations tab.
+# See AUTOMATIONS.md for a step-by-step walkthrough.
 automations: []
-#  - name: "Tag Linux ISOs"
+#  - name: "Tag + categorize Linux ISOs"
 #    enabled: true
-#    action: add_tag
-#    params: { tag: "linux" }
 #    name_contains: ["ubuntu", "debian", "fedora"]
+#    complete_only: false
+#    actions:
+#      - action: add_tag
+#        params: { tag: "linux" }
+#      - action: set_category
+#        params: { category: "Linux" }
 #  - name: "Maximize small remuxes"
 #    enabled: true
-#    action: file_priority
-#    params: { priority: 7 }
 #    name_contains: ["remux"]
 #    max_size_gb: 20
+#    actions:
+#      - action: file_priority
+#        params: { priority: 7 }
