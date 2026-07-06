@@ -7,6 +7,15 @@
 # Set the environment variables below in Portainer's "Environment variables"
 # section (or edit them here). Secrets stay out of any file this way.
 #
+# The image is prebuilt by GitHub Actions (.github/workflows/publish.yml) and
+# published to GHCR, so Portainer only PULLS it — nothing is built on the host.
+# This avoids both "manifest unknown" (unqualified local tag) and
+# "mkdir /.docker: permission denied" (host build) errors.
+# The GHCR package must be pullable by the host: either make it Public
+# (GitHub -> repo -> Packages -> qbit-sorter -> Change visibility), or add
+# ghcr.io registry credentials in Portainer (Registries -> Add registry).
+# To build locally instead, comment out `image:` and use `build: .`.
+#
 # Config is stored in a named Docker volume and auto-seeded on first start,
 # so there's nothing to create on the host beforehand. Edit rules/categories/
 # automation later from the web UI at http://<host>:8500.
@@ -14,8 +23,7 @@
 
 services:
   qbit-sorter:
-    build: .                         # Portainer builds the image from the repo
-    image: qbit-sorter:latest
+    image: ghcr.io/christopherstainberg-oss/qbit-sorter:latest
     container_name: qbit-sorter
     restart: unless-stopped
     ports:
