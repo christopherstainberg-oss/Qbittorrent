@@ -288,11 +288,13 @@
       <div id="relRows"></div>
       <div class="row-actions">
         <button id="relAdd" class="sm">+ Add destination</button>
+        <button id="relCheck" class="sm" title="check the paths exist and are writable from this container">Check paths</button>
         <span style="flex:1"></span>
         <button id="relSave" class="go">Save</button>
         <button id="relPreview" class="primary">Preview</button>
         <button id="relRun" class="go">Relocate now ▶</button>
       </div>
+      <div id="relCheckOut" class="hidden" style="margin-top:10px;font-family:ui-monospace,Consolas,monospace;font-size:12px"></div>
     </div>
 
     <div class="card">
@@ -925,6 +927,24 @@ async function relSave(){
   REL_DESTS=r.relocation.destinations; renderRelRows(); return r;
 }
 $("#relSave").onclick = async ()=>{ try{ await relSave(); toast("Library relocation saved"); logLine("[relocation] config saved"); }catch(e){ toast(e.message,true); logLine("[relocation] ERROR: "+e.message); } };
+$("#relCheck").onclick = async ()=>{
+  const out=$("#relCheckOut"); out.classList.remove("hidden"); out.innerHTML="checking…";
+  try{
+    await relSave();  // check the saved config
+    const r=await api("/api/relocate/check");
+    const tick=(ok)=>ok?'<span style="color:var(--accent2)">✓</span>':'<span style="color:var(--danger)">✗</span>';
+    const line=(label,p)=>{
+      if(p.exists) return `${tick(true)} <b>${esc(label)}</b> <code>${esc(p.path)}</code> exists${p.writable?", writable":' <span style="color:var(--warn)">but NOT writable</span>'}`;
+      const par = p.parent_exists ? `parent <code>${esc(p.parent)}</code> exists${p.parent_writable?"":" (not writable)"} — will be created on relocate` : `parent <code>${esc(p.parent)}</code> MISSING — mount not present?`;
+      return `${tick(false)} <b>${esc(label)}</b> <code>${esc(p.path)}</code> does not exist; ${par}`;
+    };
+    const rows=[];
+    if(r.local_download_root) rows.push(line("download root", r.local_download_root));
+    else rows.push('<span style="color:var(--warn)">no local download root set</span>');
+    (r.destinations||[]).forEach(d=>rows.push(line("dest "+d.category, d)));
+    out.innerHTML = rows.join("<br>");
+  }catch(e){ out.innerHTML='<span style="color:var(--danger)">check failed: '+esc(e.message)+"</span>"; }
+};
 async function runRelocate(dry){
   const btn=dry?$("#relPreview"):$("#relRun"); btn.disabled=true;
   try{

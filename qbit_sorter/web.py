@@ -361,6 +361,30 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
         changed = [r for r in results if not r.get("skipped")]
         return {"dry_run": body.dry_run, "count": len(changed), "results": results}
 
+    @app.get("/api/relocate/check")
+    def relocate_check() -> dict[str, Any]:
+        """Report whether the relocation paths exist / are writable from THIS
+        container's filesystem — confirms the mounts and roots are set up."""
+        rc = state.cfg.relocation
+
+        def probe(path: str) -> dict[str, Any]:
+            p = path.rstrip("/") or "/"
+            parent = os.path.dirname(p) or "/"
+            exists = os.path.isdir(p)
+            return {
+                "path": path,
+                "exists": exists,
+                "writable": exists and os.access(p, os.W_OK),
+                "parent": parent,
+                "parent_exists": os.path.isdir(parent),
+                "parent_writable": os.path.isdir(parent) and os.access(parent, os.W_OK),
+            }
+
+        return {
+            "local_download_root": probe(rc.local_download_root) if rc.local_download_root else None,
+            "destinations": [{"category": d.category, **probe(d.path)} for d in rc.destinations],
+        }
+
     @app.post("/api/relocate/preview-name")
     def preview_name(body: NamePreviewBody) -> dict[str, Any]:
         """Render the naming template against a sample name — for the live UI
