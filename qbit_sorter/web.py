@@ -583,6 +583,20 @@ def create_app(config_path: str | Path = "config.yaml") -> FastAPI:
             raise _err(exc)
         return {"ok": True, "location": loc, "count": len(body.hashes)}
 
+    @app.post("/api/delete-completed")
+    def delete_completed() -> dict[str, Any]:
+        """Remove every completed torrent from qBittorrent. The downloaded
+        files are left on disk — only the torrent entries are removed."""
+        try:
+            client = state.client()
+            raw = client.torrents(["completed"])
+            hashes = [h for t in raw if (h := t.get("hash"))]
+            if hashes:
+                client.delete(hashes, delete_files=False)
+        except Exception as exc:  # noqa: BLE001
+            raise _err(exc)
+        return {"ok": True, "count": len(hashes)}
+
     _PRIORITY_ACTIONS = {"top", "up", "down", "bottom"}
 
     @app.post("/api/set-priority")

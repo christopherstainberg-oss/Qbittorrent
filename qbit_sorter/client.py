@@ -162,3 +162,10 @@ class QbitClient:
     def rename_folder(self, torrent_hash: str, old_path: str, new_path: str) -> None:
         self._client.torrents_rename_folder(
             torrent_hash=torrent_hash, old_path=old_path, new_path=new_path)
+
+    def delete(self, hashes: list[str], delete_files: bool = False) -> None:
+        """Remove torrents from qBittorrent. With ``delete_files=False`` (the
+        default) only the torrent entries are removed; the downloaded data is
+        left on disk."""
+        self._client.torrents_delete(
+            delete_files=delete_files, torrent_hashes=hashes)
