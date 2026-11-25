@@ -13,6 +13,7 @@ from typing import Any
 from . import arr as arr_mod
 from . import audiobooks as ab_mod
 from . import automations as auto_mod
+from . import listed_name as listed_mod
 from . import relocator
 from . import sorter
 from .client import QbitClient
@@ -39,6 +40,10 @@ def run_pipeline(cfg: Config, client: QbitClient,
     else:
         summary["audiobooks"] = []
 
+    # Folder name follows the qBittorrent list name. Own apply flag so this
+    # can run while the rest of the pipeline stays in dry_run.
+    summary["listed_name"] = listed_mod.sync(cfg, client)
+
     # Sonarr/Radarr-style: relocate completed torrents in destination categories
     # to their external library paths. Idempotent (skips already-relocated).
     if cfg.relocation.enabled and cfg.relocation.destinations:
@@ -51,6 +56,7 @@ def run_pipeline(cfg: Config, client: QbitClient,
 
     changed = sum(1 for r in summary["sorted"] if not r.get("skipped")) \
         + sum(1 for r in summary["audiobooks"] if not r.get("skipped")) \
+        + sum(1 for r in summary["listed_name"] if not r.get("skipped")) \
         + sum(1 for r in summary["relocated"] if not r.get("skipped")) \
         + sum(r.get("applied", 0) for r in summary["automations"])
     triggered = sum(1 for r in summary["arr"] if r.get("triggered"))

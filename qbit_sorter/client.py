@@ -150,6 +150,10 @@ class QbitClient:
         return list(self._client.torrents_info(
             status_filter="completed", category=category))
 
+    def in_category(self, category: str) -> list[Any]:
+        """Every torrent in a category, including still-downloading ones."""
+        return list(self._client.torrents_info(category=category))
+
     def files(self, torrent_hash: str) -> list[Any]:
         """File list for a torrent; each item's `.name` is the path relative
         to the torrent's save root."""

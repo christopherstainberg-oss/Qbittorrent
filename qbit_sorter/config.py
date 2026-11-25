@@ -89,6 +89,20 @@ class AudiobookConfig:
 
 
 @dataclass
+class ListedNameConfig:
+    """Rename the content folder to the name listed in qBittorrent.
+
+    Runs for every torrent in `categories` once it has a content path,
+    including still-downloading ones. Does not parse Title/Author.
+    `apply` false follows the global dry_run (preview only).
+    """
+
+    enabled: bool = False
+    categories: list[str] = field(default_factory=lambda: ["Audiobooks"])
+    apply: bool = False
+
+
+@dataclass
 class ArrServiceConfig:
     """A Sonarr/Radarr instance to notify after downloads are categorized."""
 
@@ -146,6 +160,7 @@ class Config:
     create_missing_categories: bool = False
     default_category: str | None = None
     audiobooks: AudiobookConfig = field(default_factory=AudiobookConfig)
+    listed_name: ListedNameConfig = field(default_factory=ListedNameConfig)
     arr: list[ArrServiceConfig] = field(default_factory=list)
     poll: PollConfig = field(default_factory=PollConfig)
     relocation: RelocationConfig = field(default_factory=RelocationConfig)
@@ -419,6 +434,8 @@ def load_config(path: str | Path) -> Config:
         sanitize=bool(ab_raw.get("sanitize", defaults.sanitize)),
     )
 
+    listed_name = _parse_listed_name(raw.get("listed_name") or {})
+
     arr = _parse_arr(raw.get("arr") or {})
 
     poll_raw = raw.get("poll") or {}
@@ -442,6 +459,7 @@ def load_config(path: str | Path) -> Config:
         create_missing_categories=bool(raw.get("create_missing_categories", False)),
         default_category=default_category,
         audiobooks=audiobooks,
+        listed_name=listed_name,
         arr=arr,
         poll=poll,
         relocation=relocation,
@@ -449,6 +467,20 @@ def load_config(path: str | Path) -> Config:
 
 
 _RELOCATION_MODES = {"hardlink", "copy", "move"}
+
+
+def _parse_listed_name(raw: dict) -> ListedNameConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("'listed_name' must be a mapping")
+    defaults = ListedNameConfig()
+    categories = _as_str_list(raw.get("categories", defaults.categories), "listed_name.categories")
+    if not categories:
+        categories = list(defaults.categories)
+    return ListedNameConfig(
+        enabled=_env_bool("LISTED_NAME_ENABLED", bool(raw.get("enabled", defaults.enabled))),
+        categories=categories,
+        apply=_env_bool("LISTED_NAME_APPLY", bool(raw.get("apply", defaults.apply))),
+    )
 
 
 def _parse_relocation(raw: dict) -> RelocationConfig:

@@ -94,6 +94,19 @@ audiobooks:
   file_template: "{title}"     # single-file rename (extension is preserved)
   sanitize: true               # make names safe for Windows/SMB (: * ? " < > |)
 
+# --- Listed name -----------------------------------------------------------
+# Make the content folder match the name shown in qBittorrent. Does not parse
+# Title/Author (that is `audiobooks` above). Includes still-downloading
+# torrents once they have a content path. Skips a listed name that is not a
+# legal Windows folder name, a missing content path, and a target folder that
+# already exists. `apply: false` previews while the rest of the app is in
+# dry_run. Set apply true (or LISTED_NAME_APPLY=true) to rename for real
+# without turning the other steps off.
+listed_name:
+  enabled: false
+  categories: ["Audiobooks"]
+  apply: false
+
 # --- Sonarr / Radarr -------------------------------------------------------
 # After completed torrents are categorized, tell each *arr instance to process
 # its download-client queue (default command 'RefreshMonitoredDownloads'), so
