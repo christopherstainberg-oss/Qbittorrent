@@ -97,7 +97,9 @@ audiobooks:
 # --- Listed name -----------------------------------------------------------
 # Make the content folder match the name shown in qBittorrent. Does not parse
 # Title/Author (that is `audiobooks` above). Includes still-downloading
-# torrents once they have a content path. Skips a listed name that is not a
+# torrents once they have a content path. A single .mp3, .m4b, .mobi, .epub,
+# or .pdf is renamed to that list name; the extension stays. More than one
+# file of the same type (a multi-track rip) is left alone. Skips a listed name that is not a
 # legal Windows folder name, a missing content path, and a target folder that
 # already exists. `apply: false` previews while the rest of the app is in
 # dry_run. Set apply true (or LISTED_NAME_APPLY=true) to rename for real

@@ -77,26 +77,60 @@ class ListedNamePlanTest(unittest.TestCase):
         self.assertEqual(plan.old, "C.W. Farnsworth - Serve/disc1")
         self.assertEqual(plan.new, "Serve - C.W. Farnsworth")
 
-    def test_single_file_renames_its_parent_folder_not_the_file(self):
+    def test_single_file_renames_folder_and_the_media_file(self):
         plan = plan_listed_rename(
             listed="Serve - C.W. Farnsworth",
             content_path="/Audiobooks/C.W. Farnsworth - Serve/C.W. Farnsworth - Serve.m4b",
             save_path="/Audiobooks",
             taken_names={"C.W. Farnsworth - Serve"},
+            files=["C.W. Farnsworth - Serve/C.W. Farnsworth - Serve.m4b"],
         )
         self.assertFalse(plan.skipped)
         self.assertEqual(plan.old, "C.W. Farnsworth - Serve")
         self.assertEqual(plan.new, "Serve - C.W. Farnsworth")
+        self.assertEqual(
+            [(op.old, op.new) for op in plan.files],
+            [(
+                "C.W. Farnsworth - Serve/C.W. Farnsworth - Serve.m4b",
+                "C.W. Farnsworth - Serve/Serve - C.W. Farnsworth.m4b",
+            )],
+        )
 
-    def test_skips_a_file_sitting_directly_in_the_save_path(self):
+    def test_file_at_save_root_is_renamed_and_keeps_its_extension(self):
         plan = plan_listed_rename(
             listed="Never Knowing - Chevy Stevens",
             content_path="/Audiobooks/Never Knowing.m4b",
             save_path="/Audiobooks",
             taken_names=set(),
+            files=["Never Knowing.m4b"],
         )
-        self.assertTrue(plan.skipped)
-        self.assertEqual(plan.note, "no folder to rename")
+        self.assertFalse(plan.skipped)
+        self.assertEqual(plan.old, "")
+        self.assertEqual(
+            [(op.old, op.new) for op in plan.files],
+            [("Never Knowing.m4b", "Never Knowing - Chevy Stevens.m4b")],
+        )
+
+    def test_one_of_each_book_type_is_renamed_multi_track_is_not(self):
+        plan = plan_listed_rename(
+            listed="Cleopatra - Saara El-Arifi",
+            content_path="/Audiobooks/39Cleopatra.mb",
+            save_path="/Audiobooks",
+            taken_names={"39Cleopatra.mb"},
+            files=[
+                "39Cleopatra.mb/book.mobi",
+                "39Cleopatra.mb/book.epub",
+                "39Cleopatra.mb/book.pdf",
+                "39Cleopatra.mb/01.mp3",
+                "39Cleopatra.mb/02.mp3",
+            ],
+        )
+        renamed = {op.old: op.new for op in plan.files}
+        self.assertEqual(renamed["39Cleopatra.mb/book.mobi"], "39Cleopatra.mb/Cleopatra - Saara El-Arifi.mobi")
+        self.assertEqual(renamed["39Cleopatra.mb/book.epub"], "39Cleopatra.mb/Cleopatra - Saara El-Arifi.epub")
+        self.assertEqual(renamed["39Cleopatra.mb/book.pdf"], "39Cleopatra.mb/Cleopatra - Saara El-Arifi.pdf")
+        self.assertNotIn("39Cleopatra.mb/01.mp3", renamed)
+        self.assertNotIn("39Cleopatra.mb/02.mp3", renamed)
 
     def test_dry_run_does_not_call_rename_and_live_does(self):
         from types import SimpleNamespace
