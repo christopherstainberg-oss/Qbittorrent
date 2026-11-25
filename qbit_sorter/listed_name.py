@@ -14,6 +14,10 @@ log = logging.getLogger(__name__)
 
 # Illegal on the Windows share that mounts this library (Z:\Audiobooks).
 _UNSAFE = set('/\\:*?"<>|')
+_FILE_EXT = {
+    ".m4b", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".wav", ".mp4", ".mkv",
+    ".epub", ".pdf", ".zip", ".torrent", ".cue", ".nfo", ".jpg", ".png",
+}
 
 
 @dataclass
@@ -42,14 +46,27 @@ def _unsafe(name: str) -> bool:
     return False
 
 
+def _folder_to_rename(relative: str) -> str | None:
+    """Content path of a single file points at the file. Rename its folder."""
+    leaf = relative.rsplit("/", 1)[-1]
+    ext = leaf[leaf.rfind("."):].lower() if "." in leaf else ""
+    if ext not in _FILE_EXT:
+        return relative
+    parent = relative.rsplit("/", 1)[0] if "/" in relative else ""
+    return parent or None
+
+
 def plan_listed_rename(listed: str, content_path: str, save_path: str,
                        taken_names: set[str]) -> ListedNamePlan:
     """Decide one rename. `taken_names` are folder names already at save_path."""
     if not (content_path or "").strip():
         return ListedNamePlan(skipped=True, note="no content path")
-    old = _relative(content_path, save_path)
-    if not old:
+    relative = _relative(content_path, save_path)
+    if not relative:
         return ListedNamePlan(skipped=True, note="no content path")
+    old = _folder_to_rename(relative)
+    if not old:
+        return ListedNamePlan(skipped=True, note="no folder to rename")
     if old == listed:
         return ListedNamePlan(skipped=True, old=old, new=listed, note="already matches")
     if _unsafe(listed):

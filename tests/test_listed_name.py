@@ -77,6 +77,27 @@ class ListedNamePlanTest(unittest.TestCase):
         self.assertEqual(plan.old, "C.W. Farnsworth - Serve/disc1")
         self.assertEqual(plan.new, "Serve - C.W. Farnsworth")
 
+    def test_single_file_renames_its_parent_folder_not_the_file(self):
+        plan = plan_listed_rename(
+            listed="Serve - C.W. Farnsworth",
+            content_path="/Audiobooks/C.W. Farnsworth - Serve/C.W. Farnsworth - Serve.m4b",
+            save_path="/Audiobooks",
+            taken_names={"C.W. Farnsworth - Serve"},
+        )
+        self.assertFalse(plan.skipped)
+        self.assertEqual(plan.old, "C.W. Farnsworth - Serve")
+        self.assertEqual(plan.new, "Serve - C.W. Farnsworth")
+
+    def test_skips_a_file_sitting_directly_in_the_save_path(self):
+        plan = plan_listed_rename(
+            listed="Never Knowing - Chevy Stevens",
+            content_path="/Audiobooks/Never Knowing.m4b",
+            save_path="/Audiobooks",
+            taken_names=set(),
+        )
+        self.assertTrue(plan.skipped)
+        self.assertEqual(plan.note, "no folder to rename")
+
     def test_dry_run_does_not_call_rename_and_live_does(self):
         from types import SimpleNamespace
         from qbit_sorter.listed_name import sync
